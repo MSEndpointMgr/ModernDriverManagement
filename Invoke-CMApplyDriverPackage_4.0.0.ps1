@@ -466,7 +466,16 @@ Process {
 					# Attempt to read TSEnvironment variable MDMUserName
 					$Script:UserName = $TSEnvironment.Value("MDMUserName")
 					if (-not([string]::IsNullOrEmpty($Script:UserName))) {
-						Write-CMLogEntry -Value " - Successfully read service account user name from TS environment variable 'MDMUserName': $(-join@(($Script:UserName.SubString(0, $Script:UserName.Length - 3)), '***'))" -Severity 1
+						# Replace every second character in user name string with an astericks except for the at sign to not log the full service account name
+						$UserNameArray = $Script:UserName.ToCharArray()
+						for ($i = 0; $i -lt $UserNameArray.Count; $i++) {
+							if ($UserNameArray[$i] -notmatch "@") {
+								if ($i % 2) {
+									$UserNameArray[$i] = "*"
+								}
+							}
+						}
+						Write-CMLogEntry -Value " - Successfully read service account user name from TS environment variable 'MDMUserName': $(-join@($UserNameArray))" -Severity 1
 					}
 					else {
 						Write-CMLogEntry -Value " - Required service account user name could not be determined from TS environment variable" -Severity 3
