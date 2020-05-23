@@ -8,6 +8,24 @@
     to include the PackageID property of a package matching the computer model. If multiple packages are detect, it will select
 	most current one by the creation date of the packages.
 
+.PARAMETER BareMetal
+	Set the script to operate in 'BareMetal' deployment type mode.
+
+.PARAMETER DriverUpdate
+	Set the script to operate in 'DriverUpdate' deployment type mode.
+
+.PARAMETER OSUpgrade
+	Set the script to operate in 'OSUpgrade' deployment type mode.
+	
+.PARAMETER PreCache
+	Set the script to operate in 'PreCache' deployment type mode.
+	
+.PARAMETER XMLPackage
+	Set the script to operate in 'XMLPackage' deployment type mode.	
+
+.PARAMETER DebugMode
+	Set the script to operate in 'DebugMode' deployment type mode.
+
 .PARAMETER Endpoint
 	Specify the internal fully qualified domain name of the server hosting the AdminService, e.g. CM01.domain.local.
 
@@ -16,9 +34,6 @@
 
 .PARAMETER Password
 	Specify the service account password used for authenticating against the AdminService endpoint.
-
-.PARAMETER DeploymentType
-	Define a different deployment scenario other than the default behavior. Choose between BareMetal (default), OSUpgrade, DriverUpdate or PreCache (Same as OSUpgrade but only downloads the package content).
 	
 .PARAMETER Filter
 	Define a filter used when calling ConfigMgr WebService to only return objects matching the filter.
@@ -38,9 +53,6 @@
 .PARAMETER DriverInstallMode
 	Specify whether to install drivers using DISM.exe with recurse option or spawn a new process for each driver.
 
-.PARAMETER DebugMode
-	Use this switch when running script outside of a Task Sequence.
-
 .PARAMETER Manufacturer
 	Override the automatically detected computer manufacturer when running in debug mode.
 
@@ -55,28 +67,25 @@
 
 .EXAMPLE
 	# Detect, download and apply drivers during OS deployment with ConfigMgr:
-	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers"
+	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909
 
-	# Detect, download and apply drivers during OS deployment with ConfigMgr and use a driver fallback package:
-	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -UseDriverFallback	
+	# Detect, download and apply drivers during OS deployment with ConfigMgr and use a driver fallback package if no matching driver package can be found:
+	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -UseDriverFallback
 
 	# Detect and download drivers during OS upgrade with ConfigMgr:
-    .\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -DeploymentType OSUpgrade
+	.\Invoke-CMApplyDriverPackage.ps1 -OSUpgrade -Endpoint "CM01.domain.com" -TargetOSVersion 1909
     
-	# Detect, download and update with latest drivers for an existing operating system using ConfigMgr:
-	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -DeploymentType DriverUpdate
-
-	# Detect, download and apply drivers during OS deployment with ConfigMgr when using multiple Apply Operating System steps in the task sequence:
-	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -OSImageTSVariableName "OSImageVariable"
+	# Detect, download and update a device with latest drivers for an running operating system using ConfigMgr:
+	.\Invoke-CMApplyDriverPackage.ps1 -DriverUpdate -Endpoint "CM01.domain.com"
 
 	# Detect and download (pre-caching content) during OS upgrade with ConfigMgr:
-	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -DeploymentType "PreCache"
+	.\Invoke-CMApplyDriverPackage.ps1 -PreCache -Endpoint "CM01.domain.com" -TargetOSVersion 1909
 
 	# Run in a debug mode for testing purposes (to be used locally on the computer model):
-	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -DebugMode -TSPackageID "P0100001"
+	.\Invoke-CMApplyDriverPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -TargetOSVersion 1909
 
 	# Run in a debug mode for testing purposes and overriding the automatically detected computer details (could be executed basically anywhere):
-	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -DebugMode -TSPackageID "P0100001" -Manufacturer "Hewlett-Packard" -ComputerModel "HP EliteBook 820 G5" -SystemSKU "1234"
+	.\Invoke-CMApplyDriverPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -TargetOSVersion 1909 -Manufacturer "Dell" -ComputerModel "Precision 5520" -SystemSKU "07BF"
 
 .NOTES
     FileName:    Invoke-CMApplyDriverPackage.ps1
@@ -85,7 +94,6 @@
     Created:     2017-03-27
     Updated:     2020-04-30
 	
-	Minimum required version of ConfigMgr WebService: 1.6.0
 	Contributors: @CodyMathis123, @JamesMcwatty
     
     Version history:
@@ -154,64 +162,92 @@
 	3.0.2 - (2020-03-29) Fixed a spelling mistake in the Manufacturer parameter.
 	3.0.3 - (2020-03-31) Small update to the Filter parameter's default value, it's now 'Drivers' instead of 'Driver'. Also added '64 bits' and '32 bits' to the translation function for the OS architecture of the current running task sequence.
 	3.0.4 - (2020-04-09) Changed the translation function for the OS architecture of the current running task sequence into using wildcard support instead of adding language specified values
-    3.0.5 - (2020-04-30) Added 7-Zip self extracting exe support for compressed driver packages
+	3.0.5 - (2020-04-30) Added 7-Zip self extracting exe support for compressed driver packages
+	4.0.0 - ###########
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
-	[parameter(Mandatory = $true, ParameterSetName = "Execute", HelpMessage = "Specify the internal fully qualified domain name of the server hosting the AdminService, e.g. CM01.domain.local.")]
+	[parameter(Mandatory = $true, ParameterSetName = "BareMetal", HelpMessage = "Set the script to operate in 'BareMetal' deployment type mode.")]
+	[switch]$BareMetal,
+
+	[parameter(Mandatory = $true, ParameterSetName = "DriverUpdate", HelpMessage = "Set the script to operate in 'DriverUpdate' deployment type mode.")]
+	[switch]$DriverUpdate,
+
+	[parameter(Mandatory = $true, ParameterSetName = "OSUpgrade", HelpMessage = "Set the script to operate in 'OSUpgrade' deployment type mode.")]
+	[switch]$OSUpgrade,
+
+	[parameter(Mandatory = $true, ParameterSetName = "PreCache", HelpMessage = "Set the script to operate in 'PreCache' deployment type mode.")]
+	[switch]$PreCache,
+
+	[parameter(Mandatory = $true, ParameterSetName = "XMLPackage", HelpMessage = "Set the script to operate in 'XMLPackage' deployment type mode.")]
+	[switch]$XMLPackage,
+
+	[parameter(Mandatory = $true, ParameterSetName = "Debug", HelpMessage = "Set the script to operate in 'DebugMode' deployment type mode.")]
+	[switch]$DebugMode,
+
+	[parameter(Mandatory = $true, ParameterSetName = "BareMetal", HelpMessage = "Specify the internal fully qualified domain name of the server hosting the AdminService, e.g. CM01.domain.local.")]
+	[parameter(Mandatory = $true, ParameterSetName = "DriverUpdate")]
+	[parameter(Mandatory = $true, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $true, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
 	[ValidateNotNullOrEmpty()]
 	[string]$Endpoint,
 
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Specify the service account user name used for authenticating against the AdminService endpoint.")]
-	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[parameter(Mandatory = $true, ParameterSetName = "Debug", HelpMessage = "Specify the service account user name used for authenticating against the AdminService endpoint.")]
 	[ValidateNotNullOrEmpty()]
 	[string]$UserName = "",
 
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Specify the service account password used for authenticating against the AdminService endpoint.")]
-	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[parameter(Mandatory = $true, ParameterSetName = "Debug", HelpMessage = "Specify the service account password used for authenticating against the AdminService endpoint.")]
 	[ValidateNotNullOrEmpty()]
 	[string]$Password = "",
 	
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Define a different deployment scenario other than the default behavior. Choose between BareMetal (default), OSUpgrade, DriverUpdate or PreCache (Same as OSUpgrade but only downloads the package content).")]
-	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
-	[ValidateSet("BareMetal", "OSUpgrade", "DriverUpdate", "PreCache")]
-	[string]$DeploymentType = "BareMetal",
-	
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Define a filter used when calling ConfigMgr WebService to only return objects matching the filter.")]
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define a filter used when calling ConfigMgr WebService to only return objects matching the filter.")]
+	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
+	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
 	[ValidateNotNullOrEmpty()]
 	[string]$Filter = "Drivers",
 
-	[parameter(Mandatory = $true, ParameterSetName = "Execute", HelpMessage = "Define the value that will be used as the target operating system version e.g. '2004'.")]
+	[parameter(Mandatory = $true, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system version e.g. '2004'.")]
+	[parameter(Mandatory = $true, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $true, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
 	[string]$TargetOSVersion,
 
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
+	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("x64", "x86")]
 	[string]$TargetOSArchitecture = "x64",
 
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Define the operational mode, either Production or Pilot, for when calling ConfigMgr WebService to only return objects matching the selected operational mode.")]
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the operational mode, either Production or Pilot, for when calling ConfigMgr WebService to only return objects matching the selected operational mode.")]
+	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
+	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("Production", "Pilot")]
 	[string]$OperationalMode = "Production",
 	
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Specify if the script is to be used with a driver fallback package when a driver package for SystemSKU or computer model could not be detected.")]
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Specify if the script is to be used with a driver fallback package when a driver package for SystemSKU or computer model could not be detected.")]
+	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
+	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
 	[switch]$UseDriverFallback,
 	
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Specify whether to install drivers using DISM.exe with recurse option or spawn a new process for each driver.")]
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Specify whether to install drivers using DISM.exe with recurse option or spawn a new process for each driver.")]
+	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
+	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("Single", "Recurse")]
 	[string]$DriverInstallMode = "Recurse",
-	
-	[parameter(Mandatory = $true, ParameterSetName = "Debug", HelpMessage = "Use this switch when running script outside of a Task Sequence.")]
-	[switch]$DebugMode,
 
 	[parameter(Mandatory = $false, ParameterSetName = "Debug", HelpMessage = "Override the automatically detected computer manufacturer when running in debug mode.")]
 	[ValidateNotNullOrEmpty()]
@@ -226,37 +262,32 @@ param (
 	[ValidateNotNullOrEmpty()]
 	[string]$SystemSKU,
 
-	[parameter(Mandatory = $false, ParameterSetName = "Execute", HelpMessage = "Use this switch to check for drivers packages that matches earlier versions of Windows than what's specified as parameter input for TargetOSVersion.")]
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Use this switch to check for drivers packages that matches earlier versions of Windows than what's specified as parameter input for TargetOSVersion.")]
+	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
+	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
 	[switch]$OSVersionFallback
 )
 Begin {
 	# Load Microsoft.SMS.TSEnvironment COM object
-	if ($PSCmdLet.ParameterSetName -like "Execute") {
+	if ($PSCmdLet.ParameterSetName -notlike "Debug") {
 		try {
-			$TSEnvironment = New-Object -ComObject Microsoft.SMS.TSEnvironment -ErrorAction Continue
+			$TSEnvironment = New-Object -ComObject "Microsoft.SMS.TSEnvironment" -ErrorAction Stop
 		}
 		catch [System.Exception] {
-			Write-Warning -Message "Unable to construct Microsoft.SMS.TSEnvironment object"
+			Write-Warning -Message "Unable to construct Microsoft.SMS.TSEnvironment object"; exit
 		}
 	}
 }
 Process {
 	# Set Log Path
-	switch ($DeploymentType) {
-		"OSUpgrade" {
+	switch ($PSCmdLet.ParameterSetName) {
+		"Debug" {
 			$LogsDirectory = Join-Path -Path $env:SystemRoot -ChildPath "Temp"
 		}
-		"DriverUpdate" {
-			$LogsDirectory = Join-Path -Path $env:SystemRoot -ChildPath "Temp"
-		}
-		Default {
-			if (-not($PSCmdLet.ParameterSetName -like "Execute")) {
-				$LogsDirectory = Join-Path -Path $env:SystemRoot -ChildPath "Temp"
-			}
-			else {
-				$LogsDirectory = $Script:TSEnvironment.Value("_SMSTSLogPath")
-			}
+		default {
+			$LogsDirectory = $Script:TSEnvironment.Value("_SMSTSLogPath")
 		}
 	}
 	
@@ -434,19 +465,19 @@ Process {
 
     function New-TerminatingErrorRecord {
         param(
-            [parameter(Mandatory=$true, HelpMessage="Specify the exception message details.")]
+            [parameter(Mandatory = $true, HelpMessage = "Specify the exception message details.")]
             [ValidateNotNullOrEmpty()]
             [string]$Message,
 
-            [parameter(Mandatory=$false, HelpMessage="Specify the violation exception causing the error.")]
+            [parameter(Mandatory = $false, HelpMessage = "Specify the violation exception causing the error.")]
             [ValidateNotNullOrEmpty()]
             [string]$Exception = "System.Management.Automation.RuntimeException",
 
-            [parameter(Mandatory=$false, HelpMessage="Specify the error category of the exception causing the error.")]
+            [parameter(Mandatory = $false, HelpMessage = "Specify the error category of the exception causing the error.")]
             [ValidateNotNullOrEmpty()]
             [System.Management.Automation.ErrorCategory]$ErrorCategory = [System.Management.Automation.ErrorCategory]::NotImplemented,
             
-            [parameter(Mandatory=$false, HelpMessage="Specify the target object causing the error.")]
+            [parameter(Mandatory = $false, HelpMessage = "Specify the target object causing the error.")]
             [ValidateNotNullOrEmpty()]
             [string]$TargetObject = ([string]::Empty)
         )
@@ -456,26 +487,49 @@ Process {
 
         # Handle return value
         return $ErrorRecord
-    }
+	}
+	
+	function ConvertTo-ObfuscatedUserName {
+		param(
+			[parameter(Mandatory = $true, HelpMessage = "Specify the user name string to be obfuscated for log output.")]
+            [ValidateNotNullOrEmpty()]
+            [string]$InputObject
+		)
+		# Convert input object to a character array
+		$UserNameArray = $InputObject.ToCharArray()
+
+		# Loop through each character obfuscate every second item, with exceptions of the @ character if present
+		for ($i = 0; $i -lt $UserNameArray.Count; $i++) {
+			if ($UserNameArray[$i] -notmatch "@") {
+				if ($i % 2) {
+					$UserNameArray[$i] = "*"
+				}
+			}
+		}
+
+		# Join character array and return value
+		return -join@($UserNameArray)
+	}
 
 	function Test-AdminServiceData {
 		# Validate correct value have been either set as a TS environment variable or passed as parameter input for service account user name used to authenticate against the AdminService
 		if ([string]::IsNullOrEmpty($Script:UserName)) {
 			switch ($PSCmdLet.ParameterSetName) {
-				"Execute" {
+				"Debug" {
+					Write-CMLogEntry -Value " - Required service account user name could not be determined from parameter input" -Severity 3
+
+					# Throw terminating error
+					$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+				}
+				default {
 					# Attempt to read TSEnvironment variable MDMUserName
 					$Script:UserName = $TSEnvironment.Value("MDMUserName")
 					if (-not([string]::IsNullOrEmpty($Script:UserName))) {
-						# Replace every second character in user name string with an astericks except for the at sign to not log the full service account name
-						$UserNameArray = $Script:UserName.ToCharArray()
-						for ($i = 0; $i -lt $UserNameArray.Count; $i++) {
-							if ($UserNameArray[$i] -notmatch "@") {
-								if ($i % 2) {
-									$UserNameArray[$i] = "*"
-								}
-							}
-						}
-						Write-CMLogEntry -Value " - Successfully read service account user name from TS environment variable 'MDMUserName': $(-join@($UserNameArray))" -Severity 1
+						# Obfuscate user name
+						$ObfuscatedUserName = ConvertTo-ObfuscatedUserName -InputObject $Script:UserName
+
+						Write-CMLogEntry -Value " - Successfully read service account user name from TS environment variable 'MDMUserName': $($ObfuscatedUserName)" -Severity 1
 					}
 					else {
 						Write-CMLogEntry -Value " - Required service account user name could not be determined from TS environment variable" -Severity 3
@@ -485,19 +539,22 @@ Process {
 						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 					}
 				}
-				"Debug" {
-					Write-CMLogEntry -Value " - Required service account user name could not be determined from parameter input" -Severity 3
-				}
 			}
 		}
 		else {
-			Write-CMLogEntry -Value " - Successfully read service account user name from parameter input: $(-join@(($Script:UserName.SubString(0, $Script:UserName.Length - 3)), '***'))" -Severity 1
+			# Obfuscate user name
+			$ObfuscatedUserName = ConvertTo-ObfuscatedUserName -InputObject $Script:UserName
+
+			Write-CMLogEntry -Value " - Successfully read service account user name from parameter input: $($ObfuscatedUserName)" -Severity 1
 		}
 
 		# Validate correct value have been either set as a TS environment variable or passed as parameter input for service account password used to authenticate against the AdminService
 		if ([string]::IsNullOrEmpty($Script:Password)) {
 			switch ($Script:PSCmdLet.ParameterSetName) {
-				"Execute" {
+				"Debug" {
+					Write-CMLogEntry -Value " - Required service account password could not be determined from parameter input" -Severity 3
+				}
+				default {
 					# Attempt to read TSEnvironment variable MDMPassword
 					$Script:Password = $TSEnvironment.Value("MDMPassword")
 					if (-not([string]::IsNullOrEmpty($Script:Password))) {
@@ -511,9 +568,6 @@ Process {
 						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 					}
 				}
-				"Debug" {
-					Write-CMLogEntry -Value " - Required service account password could not be determined from parameter input" -Severity 3
-				}
 			}
 		}
 		else {
@@ -522,66 +576,67 @@ Process {
 
 		# Validate that if determined AdminService endpoint type is external, that additional required TS environment variables are available
 		if ($Script:AdminServiceEndpointType -like "External") {
-			# Attempt to read TSEnvironment variable MDMExternalEndpoint
-			$Script:ExternalEndpoint = $TSEnvironment.Value("MDMExternalEndpoint")
-			if (-not([string]::IsNullOrEmpty($Script:ExternalEndpoint))) {
-				Write-CMLogEntry -Value " - Successfully read external endpoint address for AdminService through CMG from TS environment variable 'MDMExternalEndpoint': $($Script:ExternalEndpoint)" -Severity 1
-			}
-			else {
-				Write-CMLogEntry -Value " - Required external endpoint address for AdminService through CMG could not be determined from TS environment variable" -Severity 3
+			if ($Script:PSCmdLet.ParameterSetName -notlike "Debug") {
+				# Attempt to read TSEnvironment variable MDMExternalEndpoint
+				$Script:ExternalEndpoint = $TSEnvironment.Value("MDMExternalEndpoint")
+				if (-not([string]::IsNullOrEmpty($Script:ExternalEndpoint))) {
+					Write-CMLogEntry -Value " - Successfully read external endpoint address for AdminService through CMG from TS environment variable 'MDMExternalEndpoint': $($Script:ExternalEndpoint)" -Severity 1
+				}
+				else {
+					Write-CMLogEntry -Value " - Required external endpoint address for AdminService through CMG could not be determined from TS environment variable" -Severity 3
 
-				# Throw terminating error
-				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-			}
+					# Throw terminating error
+					$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+				}
 
-			# Attempt to read TSEnvironment variable MDMClientID
-			$Script:ClientID = $TSEnvironment.Value("MDMClientID")
-			if (-not([string]::IsNullOrEmpty($Script:ClientID))) {
-				Write-CMLogEntry -Value " - Successfully read client identification for AdminService through CMG from TS environment variable 'MDMClientID': $($Script:ClientID)" -Severity 1
-			}
-			else {
-				Write-CMLogEntry -Value " - Required client identification for AdminService through CMG could not be determined from TS environment variable" -Severity 3
+				# Attempt to read TSEnvironment variable MDMClientID
+				$Script:ClientID = $TSEnvironment.Value("MDMClientID")
+				if (-not([string]::IsNullOrEmpty($Script:ClientID))) {
+					Write-CMLogEntry -Value " - Successfully read client identification for AdminService through CMG from TS environment variable 'MDMClientID': $($Script:ClientID)" -Severity 1
+				}
+				else {
+					Write-CMLogEntry -Value " - Required client identification for AdminService through CMG could not be determined from TS environment variable" -Severity 3
 
-				# Throw terminating error
-				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-			}
+					# Throw terminating error
+					$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+				}
 
-			# Attempt to read TSEnvironment variable MDMTenantName
-			$Script:TenantName = $TSEnvironment.Value("MDMTenantName")
-			if (-not([string]::IsNullOrEmpty($Script:TenantName))) {
-				Write-CMLogEntry -Value " - Successfully read client identification for AdminService through CMG from TS environment variable 'MDMTenantName': $($Script:TenantName)" -Severity 1
-			}
-			else {
-				Write-CMLogEntry -Value " - Required client identification for AdminService through CMG could not be determined from TS environment variable" -Severity 3
+				# Attempt to read TSEnvironment variable MDMTenantName
+				$Script:TenantName = $TSEnvironment.Value("MDMTenantName")
+				if (-not([string]::IsNullOrEmpty($Script:TenantName))) {
+					Write-CMLogEntry -Value " - Successfully read client identification for AdminService through CMG from TS environment variable 'MDMTenantName': $($Script:TenantName)" -Severity 1
+				}
+				else {
+					Write-CMLogEntry -Value " - Required client identification for AdminService through CMG could not be determined from TS environment variable" -Severity 3
 
-				# Throw terminating error
-				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+					# Throw terminating error
+					$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+				}
 			}			
 		}
 	}
 
 	function Get-AdminServiceEndpointType {
-		switch ($DeploymentType) {
+		switch ($PSCmdlet.ParameterSetName) {
 			"BareMetal" {
-				if ($Script:PSCmdlet.ParameterSetName -like "Execute") {
-					[bool]$SMSInWinPE = $TSEnvironment.Value("_SMSTSInWinPE")
-					if ($SMSInWinPE -eq $true) {
-						$Script:AdminServiceEndpointType = "Internal"
-					}
-					else {
-						Write-CMLogEntry -Value " - Detected that script was not running in WinPE of a bare metal deployment type, this is not a supported scenario" -Severity 3
-
-						# Throw terminating error
-						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-					}
-				}
-				else {
+				$SMSInWinPE = $TSEnvironment.Value("_SMSTSInWinPE")
+				if ($SMSInWinPE -eq $true) {
+					Write-CMLogEntry -Value " - Detected that script was running within a task sequence in WinPE phase, automatically configuring AdminService endpoint type" -Severity 1
 					$Script:AdminServiceEndpointType = "Internal"
 				}
+				else {
+					Write-CMLogEntry -Value " - Detected that script was not running in WinPE of a bare metal deployment type, this is not a supported scenario" -Severity 3
+
+					# Throw terminating error
+					$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+				}
+			}
+			"Debug" {
+				$Script:AdminServiceEndpointType = "Internal"
 			}
 			default {
 				Write-CMLogEntry -Value " - Attempting to determine AdminService endpoint type based on current active Management Point candidates" -Severity 1
@@ -612,7 +667,7 @@ Process {
 	}
 
 	function Set-AdminServiceEndpointURL {
-		switch ($AdminServiceEndpointType) {
+		switch ($Script:AdminServiceEndpointType) {
 			"Internal" {
 				$Script:AdminServiceURL = "https://{0}/AdminService/wmi" -f $Endpoint
 			}
@@ -620,11 +675,48 @@ Process {
 				$Script:AdminServiceURL = "{0}/wmi" -f $ExternalEndpoint
 			}
 		}
-		Write-CMLogEntry -Value " - Setting 'AdminServiceURL' variable to: $($AdminServiceURL)" -Severity 1
+		Write-CMLogEntry -Value " - Setting 'AdminServiceURL' variable to: $($Script:AdminServiceURL)" -Severity 1
+	}
+
+	function Install-AuthModule {
+		# Determine if the PSIntuneAuth module needs to be installed
+		try {
+			Write-CMLogEntry -Value " - Attempting to locate PSIntuneAuth module" -Severity 1
+			$PSIntuneAuthModule = Get-InstalledModule -Name "PSIntuneAuth" -ErrorAction Stop -Verbose:$false
+			if ($PSIntuneAuthModule -ne $null) {
+				Write-CMLogEntry -Value " - Authentication module detected, checking for latest version" -Severity 1
+				$LatestModuleVersion = (Find-Module -Name "PSIntuneAuth" -ErrorAction SilentlyContinue -Verbose:$false).Version
+				if ($LatestModuleVersion -gt $PSIntuneAuthModule.Version) {
+					Write-CMLogEntry -Value " - Latest version of PSIntuneAuth module is not installed, attempting to install: $($LatestModuleVersion.ToString())" -Severity 1
+					$UpdateModuleInvocation = Update-Module -Name "PSIntuneAuth" -Scope CurrentUser -Force -ErrorAction Stop -Confirm:$false -Verbose:$false
+				}
+			}
+		}
+		catch [System.Exception] {
+			Write-CMLogEntry -Value " - Unable to detect PSIntuneAuth module, attempting to install from PSGallery" -Severity 2
+			try {
+				# Install NuGet package provider
+				$PackageProvider = Install-PackageProvider -Name "NuGet" -Force -Verbose:$false
+	
+				# Install PSIntuneAuth module
+				Install-Module -Name "PSIntuneAuth" -Scope AllUsers -Force -ErrorAction Stop -Confirm:$false -Verbose:$false
+				Write-CMLogEntry -Value " - Successfully installed PSIntuneAuth module" -Severity 1
+			}
+			catch [System.Exception] {
+				Write-CMLogEntry -Value " - An error occurred while attempting to install PSIntuneAuth module. Error message: $($_.Exception.Message)" -Severity 3
+
+				# Throw terminating error
+				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+			}
+		}
 	}
 
 	function Get-AuthToken {
 		try {
+			# Attempt to install PSIntuneAuth module, if already installed ensure the latest version is being used
+			Install-AuthModule
+
 			# Retrieve authentication token
 			Write-CMLogEntry -Value " - Attempting to retrieve authentication token using native client with ID: $($ClientID)" -Severity 1
 			$Script:AuthToken = Get-MSIntuneAuthToken -TenantName $TenantName -ClientID $ClientID -Credential $Credential -Resource "https://ConfigMgrService" -RedirectUri "https://login.microsoftonline.com/common/oauth2/nativeclient" -ErrorAction Stop
@@ -724,10 +816,21 @@ Process {
 	}
 
     function Get-OSImageDetails {
-		$OSImageDetails = [PSCustomObject]@{
-			Architecture = $Script:TargetOSArchitecture
-			Name = "Windows 10"
-			Version = $Script:TargetOSVersion
+		switch ($Script:PSCmdlet.ParameterSetName) {
+			"DriverUpdate" {
+				$OSImageDetails = [PSCustomObject]@{
+					Architecture = Get-OSArchitecture -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty OSArchitecture)
+					Name = "Windows 10"
+					Version = Get-OSBuild -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty Version)
+				}
+			}
+			default {
+				$OSImageDetails = [PSCustomObject]@{
+					Architecture = $Script:TargetOSArchitecture
+					Name = "Windows 10"
+					Version = $Script:TargetOSVersion
+				}
+			}
 		}
 		
 		# Handle output to log file for OS image details
@@ -737,7 +840,84 @@ Process {
 		
 		# Handle return value
 		return $OSImageDetails
-    }    
+	}
+
+	function Get-OSBuild {
+		param (
+			[parameter(Mandatory = $true, HelpMessage = "OS version data to be translated.")]
+			[ValidateNotNullOrEmpty()]
+			[string]$InputObject
+		)
+		switch (([System.Version]$InputObject).Build) {
+			"19041" {
+				$OSVersion = 2004
+			}
+			"18363" {
+				$OSVersion = 1909
+			}
+			"18362" {
+				$OSVersion = 1903
+			}
+			"17763" {
+				$OSVersion = 1809
+			}
+			"17134" {
+				$OSVersion = 1803
+			}
+			"16299" {
+				$OSVersion = 1709
+			}
+			"15063" {
+				$OSVersion = 1703
+			}
+			"14393" {
+				$OSVersion = 1607
+			}
+			default {
+				Write-CMLogEntry -Value " - Unable to translate OS version using input object: $($InputObject)" -Severity 3
+				Write-CMLogEntry -Value " - Unsupported OS version detected, please reach out to the developers of this script" -Severity 3
+
+				# Throw terminating error
+				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+			}
+		}
+
+		# Handle return value from function
+		return $OSVersion
+	}
+	
+	function Get-OSArchitecture {
+		param (
+			[parameter(Mandatory = $true, HelpMessage = "OS architecture data to be translated.")]
+			[ValidateNotNullOrEmpty()]
+			[string]$InputObject
+		)
+		switch -Wildcard ($InputObject) {
+			"9" {
+				$OSArchitecture = "x64"
+			}
+			"0" {
+				$OSArchitecture = "x86"
+			}
+			"64*" {
+				$OSArchitecture = "x64"
+			}
+			"32*" {
+				$OSArchitecture = "x86"
+			}
+			default {
+				Write-CMLogEntry -Value " - Unable to translate OS architecture using input object: $($InputObject)" -Severity 3
+
+				# Throw terminating error
+				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+			}
+		}
+		
+		# Handle return value from function
+		return $OSArchitecture
+	}
 
     function Get-DriverPackages {
         try {
@@ -870,11 +1050,11 @@ Process {
 
     function Get-ComputerSystemType {
         $ComputerSystemType = Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty "Model"
-        if ($ComputerSystemType -notin @("Virtual Machine", "VMware Virtual Platform", "VirtualBox", "HVM domU", "KVM")) {
+        if ($ComputerSystemType -notin @("Virtual Machine", "VMware Virtual Platform", "VirtualBox", "HVM domU", "KVM", "VMWare7,1")) {
             Write-CMLogEntry -Value " - Supported computer platform detected, script execution allowed to continue" -Severity 1
         }
         else {
-			if ($Script:PSBoundParameters["DebugMode"]) {
+			if ($Script:PSCmdlet.ParameterSetName -like "Debug") {
 				Write-CMLogEntry -Value " - Unsupported computer platform detected, virtual machines are not supported but will be allowed in DebugMode" -Severity 2
 			}
 			else {
@@ -888,7 +1068,7 @@ Process {
 	}
 	
 	function Get-OperatingSystemVersion {
-		if (($DeploymentType -like "DriverUpdate") -or ($DeploymentType -like "OSUpgrade")) {
+		if (($Script:PSCmdlet.ParameterSetName -like "DriverUpdate") -or ($Script:PSCmdlet.ParameterSetName -like "OSUpgrade")) {
 			$OperatingSystemVersion = Get-WmiObject -Class "Win32_OperatingSystem" | Select-Object -ExpandProperty "Version"
 			if ($OperatingSystemVersion -like "10.0.*") {
 				Write-CMLogEntry -Value " - Supported operating system version currently running detected, script execution allowed to continue" -Severity 1
@@ -1543,7 +1723,7 @@ Process {
 		Write-CMLogEntry -Value " - Attempting to download content files for matched driver package: $($DriverPackageList[0].PackageName)" -Severity 1
 
 		# Depending on current deployment type, attempt to download driver package content
-		switch ($DeploymentType) {
+		switch ($Script:PSCmdlet.ParameterSetName) {
 			"PreCache" {
 				$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "CCMCache" -DestinationVariableName "OSDDriverPackage"
 			}
@@ -1632,7 +1812,7 @@ Process {
 			}
 		}
 
-		switch ($DeploymentType) {
+		switch ($Script:PSCmdlet.ParameterSetName) {
 			"BareMetal" {
 				# Apply drivers recursively from downloaded driver package location
 				Write-CMLogEntry -Value " - Attempting to apply drivers using dism.exe located in: $($ContentLocation)" -Severity 1
@@ -1714,15 +1894,11 @@ Process {
 		}
 	}
 
-	############
-	# NOTES
-	# - Add support for HP's driver software like hotkey etc
-
 	Write-CMLogEntry -Value "[ApplyDriverPackage]: Apply Driver Package process initiated" -Severity 1
 	if ($PSCmdLet.ParameterSetName -like "Debug") {
 		Write-CMLogEntry -Value " - Apply driver package process initiated in debug mode" -Severity 1
 	}	
-	Write-CMLogEntry -Value " - Apply driver package deployment type: $($DeploymentType)" -Severity 1
+	Write-CMLogEntry -Value " - Apply driver package deployment type: $($PSCmdLet.ParameterSetName)" -Severity 1
 	Write-CMLogEntry -Value " - Apply driver package operational mode: $($OperationalMode)" -Severity 1
 
 	# Set script error preference variable
@@ -1788,16 +1964,16 @@ Process {
 		Write-CMLogEntry -Value "[DriverPackage]: Completed driver package matching phase" -Severity 1
 		Write-CMLogEntry -Value "[DriverPackageValidation]: Starting driver package validation phase" -Severity 1
 
-				# Throw terminating error
-				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-
 		# Validate that at least one driver package was matched against computer data
 		# Check if multiple driver packages were detected and ensure the most recent one by sorting after the DateCreated property from original web service call
 		Confirm-DriverPackageList
 
 		Write-CMLogEntry -Value "[DriverPackageValidation]: Completed driver package validation phase" -Severity 1
 		
+				# Throw terminating error
+				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+
 		# Handle UseDriverFallback parameter if it was passed on the command line and attempt to detect if there's any available fallback packages
 		# This function will only run in the case that the parameter UseDriverFallback was specified and if the $DriverPackageList is empty at the point of execution
 		if ($PSBoundParameters["UseDriverFallback"]) {
@@ -1816,7 +1992,7 @@ Process {
 		}		
 
 		# At this point, the code below here is not allowed to be executed in debug mode, as it requires access to the Microsoft.SMS.TSEnvironment COM object
-		if ($PSCmdLet.ParameterSetName -like "Execute") {
+		if ($PSCmdLet.ParameterSetName -notlike "Debug") {
 			Write-CMLogEntry -Value "[DriverPackageDownload]: Starting driver package download phase" -Severity 1
 
 			# Attempt to download the matched driver package content files from distribution point
@@ -1842,7 +2018,7 @@ Process {
 	}
 }
 End {
-	if ($PSCmdLet.ParameterSetName -eq "Execute") {
+	if ($PSCmdLet.ParameterSetName -notlike "Debug") {
 		# Reset OSDDownloadContent.exe dependant variables for further use of the task sequence step
 		Invoke-CMResetDownloadContentVariables
 	}
