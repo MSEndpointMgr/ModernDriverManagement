@@ -63,7 +63,7 @@
 	Override the automatically detected SystemSKU when running in debug mode.
 
 .PARAMETER OSVersionFallback
-	Use this switch to check for drivers packages that matches earlier versions of Windows than what's detected from web service call.
+	Use this switch to check for drivers packages that matches earlier versions of Windows than what's specified as input for TargetOSVersion.
 
 .EXAMPLE
 	# Detect, download and apply drivers during OS deployment with ConfigMgr:
@@ -71,6 +71,9 @@
 
 	# Detect, download and apply drivers during OS deployment with ConfigMgr and use a driver fallback package if no matching driver package can be found:
 	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -UseDriverFallback
+
+	# Detect, download and apply drivers during OS deployment with ConfigMgr and check for driver packages that matches an earlier version than what's specified for TargetOSVersion:
+	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -OSVersionFallback
 
 	# Detect and download drivers during OS upgrade with ConfigMgr:
 	.\Invoke-CMApplyDriverPackage.ps1 -OSUpgrade -Endpoint "CM01.domain.com" -TargetOSVersion 1909
@@ -262,7 +265,7 @@ param (
 	[ValidateNotNullOrEmpty()]
 	[string]$SystemSKU,
 
-	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Use this switch to check for drivers packages that matches earlier versions of Windows than what's specified as parameter input for TargetOSVersion.")]
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Use this switch to check for drivers packages that matches earlier versions of Windows than what's specified as input for TargetOSVersion.")]
 	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
 	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
 	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
