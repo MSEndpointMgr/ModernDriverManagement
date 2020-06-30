@@ -21,13 +21,16 @@
 	Set the script to operate in 'PreCache' deployment type mode.
 	
 .PARAMETER XMLPackage
-	Set the script to operate in 'XMLPackage' deployment type mode.	
+	Set the script to operate in 'XMLPackage' deployment type mode.
 
 .PARAMETER DebugMode
 	Set the script to operate in 'DebugMode' deployment type mode.
 
 .PARAMETER Endpoint
 	Specify the internal fully qualified domain name of the server hosting the AdminService, e.g. CM01.domain.local.
+
+.PARAMETER XMLDeploymentType
+	Specify the deployment type mode for XML based driver package deployments, e.g. 'BareMetal', 'OSUpdate', 'DriverUpdate', 'PreCache'.
 
 .PARAMETER UserName
 	Specify the service account user name used for authenticating against the AdminService endpoint.
@@ -90,12 +93,15 @@
 	# Run in a debug mode for testing purposes and overriding the automatically detected computer details (could be executed basically anywhere):
 	.\Invoke-CMApplyDriverPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -TargetOSVersion 1909 -Manufacturer "Dell" -ComputerModel "Precision 5520" -SystemSKU "07BF"
 
+	# Detect, download and apply drivers during OS deployment with ConfigMgr and use an XML package as the source of driver package details instead of the AdminService:
+	.\Invoke-CMApplyDriverPackage.ps1 -XMLPackage -TargetOSVersion "1909" -TargetOSArchitecture "x64" -XMLDeploymentType BareMetal
+
 .NOTES
     FileName:    Invoke-CMApplyDriverPackage.ps1
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2020-04-30
+    Updated:     2020-06-29
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -166,7 +172,9 @@
 	3.0.3 - (2020-03-31) Small update to the Filter parameter's default value, it's now 'Drivers' instead of 'Driver'. Also added '64 bits' and '32 bits' to the translation function for the OS architecture of the current running task sequence.
 	3.0.4 - (2020-04-09) Changed the translation function for the OS architecture of the current running task sequence into using wildcard support instead of adding language specified values
 	3.0.5 - (2020-04-30) Added 7-Zip self extracting exe support for compressed driver packages
-	4.0.0 - ###########
+	4.0.0 - (2020-06-29) IMPORTANT: From this version and onwards, usage of the ConfigMgr WebService has been deprecated. This version will only work with the built-in AdminService in ConfigMgr.
+						 Removed the DeploymentType parameter and replaced each deployment type with it's own switch parameter, e.g. -BareMetal, -DriverUpdate etc. Additional new parameters have been added, including the requirements of pre-defined Task Sequence variables 
+						 that the script requires. For more information, please refer to the embedded examples of how to use this script or refer to the official documentation at https://www.msendpointmgr.com/modern-driver-management.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -196,6 +204,11 @@ param (
 	[ValidateNotNullOrEmpty()]
 	[string]$Endpoint,
 
+	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage", HelpMessage = "Specify the deployment type mode for XML based driver package deployments, e.g. 'BareMetal', 'OSUpdate', 'DriverUpdate', 'PreCache'.")]
+	[ValidateNotNullOrEmpty()]
+	[ValidateSet("BareMetal", "OSUpdate", "DriverUpdate", "PreCache")]
+	[string]$XMLDeploymentType = "BareMetal",
+
 	[parameter(Mandatory = $true, ParameterSetName = "Debug", HelpMessage = "Specify the service account user name used for authenticating against the AdminService endpoint.")]
 	[ValidateNotNullOrEmpty()]
 	[string]$UserName = "",
@@ -209,6 +222,7 @@ param (
 	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
 	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
 	[string]$Filter = "Drivers",
 
@@ -216,6 +230,7 @@ param (
 	[parameter(Mandatory = $true, ParameterSetName = "OSUpgrade")]
 	[parameter(Mandatory = $true, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
+	[parameter(Mandatory = $true, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
 	[string]$TargetOSVersion,
@@ -224,6 +239,7 @@ param (
 	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
 	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("x64", "x86")]
 	[string]$TargetOSArchitecture = "x64",
@@ -233,6 +249,7 @@ param (
 	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
 	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("Production", "Pilot")]
 	[string]$OperationalMode = "Production",
@@ -248,6 +265,7 @@ param (
 	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
 	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
 	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
+	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("Single", "Recurse")]
 	[string]$DriverInstallMode = "Recurse",
@@ -491,6 +509,30 @@ Process {
         # Handle return value
         return $ErrorRecord
 	}
+
+	function Get-DeploymentType {
+		switch ($PSCmdlet.ParameterSetName) {
+			"XMLPackage" {
+				# Set required variables for XMLPackage parameter set
+				$Script:DeploymentMode = $Script:XMLDeploymentType
+				$Script:PackageSource = "XML Package Logic file"
+
+				# Define the path for the pre-downloaded XML Package Logic file called DriverPackages.xml
+				$XMLPackageLogicFile = (Join-Path -Path $TSEnvironment.Value("MDMXMLPackage01") -ChildPath "DriverPackages.xml")
+				if (-not(Test-Path -Path $XMLPackageLogicFile)) {
+					Write-CMLogEntry -Value " - Failed to locate required 'DriverPackages.xml' logic file for XMLPackage deployment type, ensure it has been pre-downloaded in a Download Package Content step before running this script" -Severity 3
+
+					# Throw terminating error
+					$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+				}
+			}
+			default {
+				$Script:DeploymentMode = $Script:PSCmdlet.ParameterSetName
+				$Script:PackageSource = "AdminService"
+			}
+		}
+	}
 	
 	function ConvertTo-ObfuscatedUserName {
 		param(
@@ -623,7 +665,7 @@ Process {
 	}
 
 	function Get-AdminServiceEndpointType {
-		switch ($PSCmdlet.ParameterSetName) {
+		switch ($Script:DeploymentMode) {
 			"BareMetal" {
 				$SMSInWinPE = $TSEnvironment.Value("_SMSTSInWinPE")
 				if ($SMSInWinPE -eq $true) {
@@ -819,7 +861,7 @@ Process {
 	}
 
     function Get-OSImageDetails {
-		switch ($Script:PSCmdlet.ParameterSetName) {
+		switch ($Script:DeploymentMode) {
 			"DriverUpdate" {
 				$OSImageDetails = [PSCustomObject]@{
 					Architecture = Get-OSArchitecture -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty OSArchitecture)
@@ -926,21 +968,36 @@ Process {
         try {
             # Retrieve driver packages but filter out matches depending on script operational mode
             switch ($OperationalMode) {
-                "Production" {
-					$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object { $_.PackageName -notmatch "Pilot" -and $_.PackageName -notmatch "Retired" }
+				"Production" {
+					if ($Script:PSCmdlet.ParameterSetName -like "XMLPackage") {
+						Write-CMLogEntry -Value " - Reading XML content logic file driver package entries" -Severity 1				
+						$Packages = (([xml]$XMLContent = (Get-Content -Path $XMLPackageLogicFile -Raw)).ArrayOfCMPackage).CMPackage | Where-Object { $_.Name -notmatch "Pilot" -and $_.Name -notmatch "Legacy" -and $_.Name -match $Filter }
+					}
+					else {
+						Write-CMLogEntry -Value " - Querying AdminService for driver package instances" -Severity 1
+						$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object { $_.PackageName -notmatch "Pilot" -and $_.PackageName -notmatch "Retired" }
+					}
+
                 }
                 "Pilot" {
-					$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object { $_.PackageName -match "Pilot" }
+					if ($Script:PSCmdlet.ParameterSetName -like "XMLPackage") {
+						Write-CMLogEntry -Value " - Reading XML content logic file driver package entries" -Severity 1		
+						$Packages = (([xml]$XMLContent = (Get-Content -Path $XMLPackageLogicFile -Raw)).ArrayOfCMPackage).CMPackage | Where-Object { $_.Name -match "Pilot" -and $_.Name -match $Filter }
+					}
+					else {
+						Write-CMLogEntry -Value " - Querying AdminService for driver package instances" -Severity 1
+						$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object { $_.PackageName -match "Pilot" }
+					}
                 }
             }
 		
 			# Handle return value
 			if ($Packages -ne $null) {
-				Write-CMLogEntry -Value " - Retrieved a total of '$(($Packages | Measure-Object).Count)' driver packages from AdminService matching operational mode: $($OperationalMode)" -Severity 1
+				Write-CMLogEntry -Value " - Retrieved a total of '$(($Packages | Measure-Object).Count)' driver packages from $($Script:PackageSource) matching operational mode: $($OperationalMode)" -Severity 1
 				return $Packages
 			}
 			else {
-				Write-CMLogEntry -Value " - Retrieved a total of '0' driver packages from AdminService matching operational mode: $($OperationalMode)" -Severity 3
+				Write-CMLogEntry -Value " - Retrieved a total of '0' driver packages from $($Script:PackageSource) matching operational mode: $($OperationalMode)" -Severity 3
 
 				# Throw terminating error
 				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
@@ -948,7 +1005,7 @@ Process {
 			}
         }
         catch [System.Exception] {
-            Write-CMLogEntry -Value " - An error occurred while calling AdminService for a list of available driver packages. Error message: $($_.Exception.Message)" -Severity 3
+            Write-CMLogEntry -Value " - An error occurred while calling $($Script:PackageSource) for a list of available driver packages. Error message: $($_.Exception.Message)" -Severity 3
 
             # Throw terminating error
             $ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
@@ -1815,7 +1872,7 @@ Process {
 			}
 		}
 
-		switch ($Script:PSCmdlet.ParameterSetName) {
+		switch ($Script:DeploymentMode) {
 			"BareMetal" {
 				# Apply drivers recursively from downloaded driver package location
 				Write-CMLogEntry -Value " - Attempting to apply drivers using dism.exe located in: $($ContentLocation)" -Severity 1
@@ -1914,7 +1971,10 @@ Process {
 	$SkipFallbackDriverPackageValidation = $false
 
     try {
-        Write-CMLogEntry -Value "[PrerequisiteChecker]: Starting environment prerequisite checker" -Severity 1
+		Write-CMLogEntry -Value "[PrerequisiteChecker]: Starting environment prerequisite checker" -Severity 1
+		
+		# Determine the deployment type mode for driver package installation
+		Get-DeploymentType
 
         # Determine if running on supported computer system type
 		Get-ComputerSystemType
@@ -1932,25 +1992,32 @@ Process {
         $ComputerDetectionMethod = Set-ComputerDetectionMethod
 
         Write-CMLogEntry -Value "[PrerequisiteChecker]: Completed environment prerequisite checker" -Severity 1
-        Write-CMLogEntry -Value "[AdminService]: Starting AdminService endpoint phase" -Severity 1
 
-		# Detect AdminService endpoint type
-		Get-AdminServiceEndpointType
+		if ($Script:PSCmdLet.ParameterSetName -notlike "XMLPackage") {
+			Write-CMLogEntry -Value "[AdminService]: Starting AdminService endpoint phase" -Severity 1
 
-		# Determine if required values to connect to AdminService are provided
-		Test-AdminServiceData
+			# Detect AdminService endpoint type
+			Get-AdminServiceEndpointType
 
-		# Determine the AdminService endpoint URL based on endpoint type
-		Set-AdminServiceEndpointURL
+			# Determine if required values to connect to AdminService are provided
+			Test-AdminServiceData
 
-		# Construct PSCredential object for AdminService authentication, this is required for both endpoint types
-		Get-AuthCredential
+			# Determine the AdminService endpoint URL based on endpoint type
+			Set-AdminServiceEndpointURL
 
-		# Attempt to retrieve an authentication token for external AdminService endpoint connectivity
-		# This will only execute when the endpoint type has been detected as External, which means that authentication is needed against the Cloud Management Gateway
-		if ($Script:AdminServiceEndpointType -like "External") {
-			Get-AuthToken
+			# Construct PSCredential object for AdminService authentication, this is required for both endpoint types
+			Get-AuthCredential
+
+			# Attempt to retrieve an authentication token for external AdminService endpoint connectivity
+			# This will only execute when the endpoint type has been detected as External, which means that authentication is needed against the Cloud Management Gateway
+			if ($Script:AdminServiceEndpointType -like "External") {
+				Get-AuthToken
+			}
+
+			Write-CMLogEntry -Value "[AdminService]: Completed AdminService endpoint phase" -Severity 1
 		}
+
+		Write-CMLogEntry -Value "[DriverPackage]: Starting driver package retrieval using method: $($Script:PackageSource)" -Severity 1
 
         # Retrieve available driver packages from web service
 		$DriverPackages = Get-DriverPackages
@@ -1958,7 +2025,6 @@ Process {
         # Determine the OS image version and architecture values based upon parameter input
 		$OSImageDetails = Get-OSImageDetails
 
-		Write-CMLogEntry -Value "[AdminService]: Completed AdminService endpoint phase" -Severity 1
 		Write-CMLogEntry -Value "[DriverPackage]: Starting driver package matching phase" -Severity 1
 
 		# Match detected driver packages from web service call with computer details and OS image details gathered previously
@@ -1972,10 +2038,6 @@ Process {
 		Confirm-DriverPackageList
 
 		Write-CMLogEntry -Value "[DriverPackageValidation]: Completed driver package validation phase" -Severity 1
-		
-				# Throw terminating error
-				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 
 		# Handle UseDriverFallback parameter if it was passed on the command line and attempt to detect if there's any available fallback packages
 		# This function will only run in the case that the parameter UseDriverFallback was specified and if the $DriverPackageList is empty at the point of execution
