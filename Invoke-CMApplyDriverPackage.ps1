@@ -860,7 +860,7 @@ Process {
 		return $PackageArray
 	}
 
-    function Get-OSImageDetails {
+	function Get-OSImageDetails {
 		switch ($Script:DeploymentMode) {
 			"DriverUpdate" {
 				$OSImageDetails = [PSCustomObject]@{
@@ -982,7 +982,7 @@ Process {
                 "Pilot" {
 					if ($Script:PSCmdlet.ParameterSetName -like "XMLPackage") {
 						Write-CMLogEntry -Value " - Reading XML content logic file driver package entries" -Severity 1		
-						$Packages = (([xml]$X(Get-Content -Path $XMLPackageLogicFile -Raw)).ArrayOfCMPackage).CMPackage | Where-Object { $_.Name -match "Pilot" -and $_.Name -match $Filter }
+						$Packages = (([xml]$(Get-Content -Path $XMLPackageLogicFile -Raw)).ArrayOfCMPackage).CMPackage | Where-Object { $_.Name -match "Pilot" -and $_.Name -match $Filter }
 					}
 					else {
 						Write-CMLogEntry -Value " - Querying AdminService for driver package instances" -Severity 1
@@ -2054,7 +2054,7 @@ Process {
 			Confirm-FallbackDriverPackageList
 
 			Write-CMLogEntry -Value "[DriverPackageFallbackValidation]: Completed fallback driver package validation phase" -Severity 1				
-		}		
+		}
 
 		# At this point, the code below here is not allowed to be executed in debug mode, as it requires access to the Microsoft.SMS.TSEnvironment COM object
 		if ($PSCmdLet.ParameterSetName -notlike "Debug") {
