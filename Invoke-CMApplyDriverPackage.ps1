@@ -217,7 +217,7 @@ param (
 	[ValidateNotNullOrEmpty()]
 	[string]$Password = "",
 	
-	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define a filter used when calling ConfigMgr WebService to only return objects matching the filter.")]
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define a filter used when calling the AdminService to only return objects matching the filter.")]
 	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
 	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
 	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
