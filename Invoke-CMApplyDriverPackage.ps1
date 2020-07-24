@@ -175,6 +175,7 @@
 	4.0.0 - (2020-06-29) IMPORTANT: From this version and onwards, usage of the ConfigMgr WebService has been deprecated. This version will only work with the built-in AdminService in ConfigMgr.
 						 Removed the DeploymentType parameter and replaced each deployment type with it's own switch parameter, e.g. -BareMetal, -DriverUpdate etc. Additional new parameters have been added, including the requirements of pre-defined Task Sequence variables 
 						 that the script requires. For more information, please refer to the embedded examples of how to use this script or refer to the official documentation at https://www.msendpointmgr.com/modern-driver-management.
+	4.0.1 - (2020-07-24) Fixed an issue where an improper variable name was used instead of $DriverPackageCompressedFile
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
