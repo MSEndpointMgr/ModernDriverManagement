@@ -154,7 +154,8 @@
 	3.0.2 - (2020-03-29) Fixed a spelling mistake in the Manufacturer parameter.
 	3.0.3 - (2020-03-31) Small update to the Filter parameter's default value, it's now 'Drivers' instead of 'Driver'. Also added '64 bits' and '32 bits' to the translation function for the OS architecture of the current running task sequence.
 	3.0.4 - (2020-04-09) Changed the translation function for the OS architecture of the current running task sequence into using wildcard support instead of adding language specified values
-    3.0.5 - (2020-04-30) Added 7-Zip self extracting exe support for compressed driver packages
+	3.0.5 - (2020-04-30) Added 7-Zip self extracting exe support for compressed driver packages
+	3.0.6 - (2020-07-24) Added support for Windows 10 version 2004 and additional logging for when constructing custom driver package objects for matching process
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -581,6 +582,9 @@ Process {
 			"10.0*" {
 				$OSName = "Windows 10"
 				switch (([System.Version]$InputObject).Build) {
+					"19041" {
+						$OSVersion = 2004
+					}
 					"18363" {
 						$OSVersion = 1909
 					}
@@ -1005,18 +1009,27 @@ Process {
 		Write-CMLogEntry -Value " - Count of driver packages after filter processing: $($DriverPackagesCount)" -Severity 1
 
 		foreach ($DriverPackageItem in $DriverPackages) {
-			# Construct custom object to hold values for current driver package properties used for matching with current computer details
-			$DriverPackageDetails = [PSCustomObject]@{
-				PackageName = $DriverPackageItem.PackageName
-				PackageID = $DriverPackageItem.PackageID
-				PackageVersion = $DriverPackageItem.PackageVersion
-				DateCreated = $DriverPackageItem.PackageCreated
-				Manufacturer = $DriverPackageItem.PackageManufacturer
-				Model = $null
-				SystemSKU = $DriverPackageItem.PackageDescription.Split(":").Replace("(", "").Replace(")", "")[1]
-				OSName = $null
-				OSVersion = $null
-				Architecture = $null 
+			try {
+				# Construct custom object to hold values for current driver package properties used for matching with current computer details
+				$DriverPackageDetails = [PSCustomObject]@{
+					PackageName = $DriverPackageItem.PackageName
+					PackageID = $DriverPackageItem.PackageID
+					PackageVersion = $DriverPackageItem.PackageVersion
+					DateCreated = $DriverPackageItem.PackageCreated
+					Manufacturer = $DriverPackageItem.PackageManufacturer
+					Model = $null
+					SystemSKU = $DriverPackageItem.PackageDescription.Split(":").Replace("(", "").Replace(")", "")[1]
+					OSName = $null
+					OSVersion = $null
+					Architecture = $null 
+				}
+			}
+			catch [System.Exception] {
+				Write-CMLogEntry -Value " - Failed to construct custom object to hold values for current driver package properties used for matching with current computer details" -Severity 1
+
+				# Throw terminating error
+				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 			}
 			
 			# Add driver package model details depending on manufacturer to custom driver package details object
