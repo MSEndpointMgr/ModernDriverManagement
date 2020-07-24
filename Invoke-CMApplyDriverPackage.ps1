@@ -1825,9 +1825,9 @@ Process {
 				"*.zip" {
 					try {
 						# Expand compressed driver package archive file
-						Write-CMLogEntry -Value " - Attempting to decompress driver package content file: $($DriverPackageCompressedContent)" -Severity 1
+						Write-CMLogEntry -Value " - Attempting to decompress driver package content file: $($DriverPackageCompressedFile)" -Severity 1
 						Write-CMLogEntry -Value " - Decompression destination: $($ContentLocation)" -Severity 1
-						Expand-Archive -Path $DriverPackageCompressedContent -DestinationPath $ContentLocation -Force -ErrorAction Stop
+						Expand-Archive -Path $DriverPackageCompressedFile -DestinationPath $ContentLocation -Force -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully decompressed driver package content file" -Severity 1
 					}
 					catch [System.Exception] {
@@ -1840,8 +1840,8 @@ Process {
 					
 					try {
 						# Remove compressed driver package archive file
-						if (Test-Path -Path $DriverPackageCompressedContent) {
-							Remove-Item -Path $DriverPackageCompressedContent -Force -ErrorAction Stop
+						if (Test-Path -Path $DriverPackageCompressedFile) {
+							Remove-Item -Path $DriverPackageCompressedFile -Force -ErrorAction Stop
 						}
 					}
 					catch [System.Exception] {
