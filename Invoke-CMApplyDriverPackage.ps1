@@ -1817,18 +1817,18 @@ Process {
 			[string]$ContentLocation
 		)
 		# Detect if downloaded driver package content is a compressed archive that needs to be extracted before drivers are installed
-		$DriverPackageCompressedFile = Get-ChildItem -Path $ContentLocation -Filter "DriverPackage.*" | Select-Object -ExpandProperty Name
-		if (-not([string]::IsNullOrEmpty($DriverPackageCompressedFile))) {
+		$DriverPackageCompressedFile = Get-ChildItem -Path $ContentLocation -Filter "DriverPackage.*"
+		if ($DriverPackageCompressedFile -ne $null) {
 			Write-CMLogEntry -Value " - Downloaded driver package content contains a compressed archive with driver content" -Severity 1
 			
 			# Detect if compressed format is Windows native zip or 7-Zip exe
-			switch -wildcard ($DriverPackageCompressedFile) {
+			switch -wildcard ($DriverPackageCompressedFile.Name) {
 				"*.zip" {
 					try {
 						# Expand compressed driver package archive file
-						Write-CMLogEntry -Value " - Attempting to decompress driver package content file: $($DriverPackageCompressedFile)" -Severity 1
+						Write-CMLogEntry -Value " - Attempting to decompress driver package content file: $($DriverPackageCompressedFile.Name)" -Severity 1
 						Write-CMLogEntry -Value " - Decompression destination: $($ContentLocation)" -Severity 1
-						Expand-Archive -Path $DriverPackageCompressedFile -DestinationPath $ContentLocation -Force -ErrorAction Stop
+						Expand-Archive -Path $DriverPackageCompressedFile.FullName -DestinationPath $ContentLocation -Force -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully decompressed driver package content file" -Severity 1
 					}
 					catch [System.Exception] {
@@ -1841,8 +1841,8 @@ Process {
 					
 					try {
 						# Remove compressed driver package archive file
-						if (Test-Path -Path $DriverPackageCompressedFile) {
-							Remove-Item -Path $DriverPackageCompressedFile -Force -ErrorAction Stop
+						if (Test-Path -Path $DriverPackageCompressedFile.FullName) {
+							Remove-Item -Path $DriverPackageCompressedFile.FullName -Force -ErrorAction Stop
 						}
 					}
 					catch [System.Exception] {
@@ -1854,9 +1854,9 @@ Process {
 					}
 				}
 				"*.exe" {
-					Write-CMLogEntry -Value " - Attempting to decompress 7-Zip driver package content file: $($DriverPackageCompressedFile)" -Severity 1
+					Write-CMLogEntry -Value " - Attempting to decompress 7-Zip driver package content file: $($DriverPackageCompressedFile.Name)" -Severity 1
 					Write-CMLogEntry -Value " - Decompression destination: $($ContentLocation)" -Severity 1
-					$ReturnCode = Invoke-Executable -FilePath (Join-Path -Path $ContentLocation -ChildPath $DriverPackageCompressedFile) -Arguments "-o`"$($ContentLocation)`" -y"
+					$ReturnCode = Invoke-Executable -FilePath $DriverPackageCompressedFile.FullName -Arguments "-o`"$($ContentLocation)`" -y"
 					
 					# Validate 7-Zip driver extraction
 					if ($ReturnCode -eq 0) {
