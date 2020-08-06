@@ -83,7 +83,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2020-04-30
+    Updated:     2020-08-05
 	
 	Minimum required version of ConfigMgr WebService: 1.6.0
 	Contributors: @CodyMathis123, @JamesMcwatty
@@ -156,6 +156,7 @@
 	3.0.4 - (2020-04-09) Changed the translation function for the OS architecture of the current running task sequence into using wildcard support instead of adding language specified values
 	3.0.5 - (2020-04-30) Added 7-Zip self extracting exe support for compressed driver packages
 	3.0.6 - (2020-07-24) Added support for Windows 10 version 2004 and additional logging for when constructing custom driver package objects for matching process
+	3.0.7 - (2020-08-05) Fixed a bug that would cause the script to crash in case the SKU input string from the driver package properties would contain a space character instead of a comma
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -1371,6 +1372,9 @@ Process {
 			[ValidateNotNullOrEmpty()]
 			[PSCustomObject]$ComputerData
 		)
+
+		# Remove any space characters from driver package input data and replace them with a comma instead
+		$DriverPackageInput = $DriverPackageInput.Replace(" ", ",")
 
 		# Handle multiple SystemSKU's from driver package input and determine the proper delimiter
 		if ($DriverPackageInput -match ",") {
