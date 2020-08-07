@@ -440,6 +440,9 @@ Process {
 			Write-CMLogEntry -Value " - Setting task sequence variable OSDDownloadDestinationPath to: $($CustomLocationPath)" -Severity 1
 			$TSEnvironment.Value("OSDDownloadDestinationPath") = "$($CustomLocationPath)"
 		}
+
+		# Set SMSTSDownloadRetryCount to 1000 to overcome potential BranchCache issue that will cause 'SendWinHttpRequest failed. 80072efe'
+		$TSEnvironment.Value("SMSTSDownloadRetryCount") = 1000
 		
 		# Invoke download of package content
 		try {
@@ -451,10 +454,20 @@ Process {
 				Write-CMLogEntry -Value " - Starting package content download process (WinPE), this might take some time" -Severity 1
 				$ReturnCode = Invoke-Executable -FilePath "OSDDownloadContent.exe"
 			}
+
+			# Reset SMSTSDownloadRetryCount to 5 after attempted download
+			$TSEnvironment.Value("SMSTSDownloadRetryCount") = 5
 			
 			# Match on return code
 			if ($ReturnCode -eq 0) {
 				Write-CMLogEntry -Value " - Successfully downloaded package content with PackageID: $($PackageID)" -Severity 1
+			}
+			else {
+				Write-CMLogEntry -Value " - Failed to download package content with PackageID '$($PackageID)'. Return code was: $($ReturnCode)" -Severity 3
+
+				# Throw terminating error
+				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 			}
 		}
 		catch [System.Exception] {
