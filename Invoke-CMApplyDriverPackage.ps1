@@ -101,7 +101,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2020-06-29
+    Updated:     2020-08-07
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -176,6 +176,7 @@
 						 Removed the DeploymentType parameter and replaced each deployment type with it's own switch parameter, e.g. -BareMetal, -DriverUpdate etc. Additional new parameters have been added, including the requirements of pre-defined Task Sequence variables 
 						 that the script requires. For more information, please refer to the embedded examples of how to use this script or refer to the official documentation at https://www.msendpointmgr.com/modern-driver-management.
 	4.0.1 - (2020-07-24) Fixed an issue where an improper variable name was used instead of $DriverPackageCompressedFile
+	4.0.2 - (2020-08-07) Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, e.g. with spaces as a delimiter or with duplicate entries
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -1573,12 +1574,12 @@ Process {
 			[parameter(Mandatory = $true, HelpMessage = "Specify the SystemSKU value from the driver package object.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$DriverPackageInput,
-
+	
 			[parameter(Mandatory = $true, HelpMessage = "Specify the computer data object.")]
 			[ValidateNotNullOrEmpty()]
 			[PSCustomObject]$ComputerData
 		)
-
+	
 		# Handle multiple SystemSKU's from driver package input and determine the proper delimiter
 		if ($DriverPackageInput -match ",") {
 			$SystemSKUDelimiter = ","
@@ -1586,24 +1587,27 @@ Process {
 		if ($DriverPackageInput -match ";") {
 			$SystemSKUDelimiter = ";"
 		}
-
+	
+		# Remove any space characters from driver package input data, replace them with a comma instead and ensure there's no duplicate entries
+		$DriverPackageInputArray = $DriverPackageInput.Replace(" ", ",").Split($SystemSKUDelimiter) | Select-Object -Unique
+	
 		# Construct custom object for return value
 		$SystemSKUDetectionResult = [PSCustomObject]@{
 			Detected = $null
 			SystemSKUValue = $null
 		}
-
+	
 		# Attempt to determine if the driver package input matches with the computer data input and account for multiple SystemSKU's by separating them with the detected delimiter
 		if (-not([string]::IsNullOrEmpty($SystemSKUDelimiter))) {
 			# Construct table for keeping track of matched SystemSKU items
 			$SystemSKUTable = @{}
-
+	
 			# Attempt to match for each SystemSKU item based on computer data input
-			foreach ($SystemSKUItem in ($DriverPackageInput -split $SystemSKUDelimiter)) {
+			foreach ($SystemSKUItem in $DriverPackageInputArray) {
 				if ($ComputerData.SystemSKU -match $SystemSKUItem) {
 					# Add key value pair with match success
 					$SystemSKUTable.Add($SystemSKUItem, $true)
-
+	
 					# Set custom object property with SystemSKU value that was matched on the detection result object
 					$SystemSKUDetectionResult.SystemSKUValue = $SystemSKUItem
 				}
@@ -1612,12 +1616,12 @@ Process {
 					$SystemSKUTable.Add($SystemSKUItem, $false)
 				}
 			}
-
+	
 			# Check if table contains a matched SystemSKU
 			if ($SystemSKUTable.Values -contains $true) {
 				# SystemSKU match found based upon multiple items detected in computer data input
 				Write-CMLogEntry -Value " - Matched SystemSKU: $($ComputerData.SystemSKU)" -Severity 1
-
+	
 				# Set custom object property that SystemSKU value that was matched on the detection result object
 				$SystemSKUDetectionResult.Detected = $true
 				
@@ -1628,24 +1632,24 @@ Process {
 				# Set properties for custom object for return value
 				$SystemSKUDetectionResult.SystemSKUValue = ""
 				$SystemSKUDetectionResult.Detected = $false
-
+	
 				return $SystemSKUDetectionResult
 			}
 		}
 		elseif ($DriverPackageInput -match $ComputerData.SystemSKU) {
 			# SystemSKU match found based upon single item detected in computer data input
 			Write-CMLogEntry -Value " - Matched SystemSKU: $($ComputerData.SystemSKU)" -Severity 1
-
+	
 			# Set properties for custom object for return value
 			$SystemSKUDetectionResult.SystemSKUValue = $ComputerData.SystemSKU
 			$SystemSKUDetectionResult.Detected = $true
-
+	
 			return $SystemSKUDetectionResult
 		}
 		elseif ((-not([string]::IsNullOrEmpty($ComputerData.FallbackSKU))) -and ($DriverPackageInput -match $ComputerData.FallbackSKU)) {
 			# SystemSKU match found using FallbackSKU value using detection method OEMString, this should only be valid for Dell
 			Write-CMLogEntry -Value " - Matched SystemSKU: $($ComputerData.FallbackSKU)" -Severity 1
-
+	
 			# Set properties for custom object for return value
 			$SystemSKUDetectionResult.SystemSKUValue = $ComputerData.FallbackSKU
 			$SystemSKUDetectionResult.Detected = $true
@@ -1657,7 +1661,7 @@ Process {
 			# Set properties for custom object for return value
 			$SystemSKUDetectionResult.SystemSKUValue = ""
 			$SystemSKUDetectionResult.Detected = $false
-
+	
 			return $SystemSKUDetectionResult
 		}
 	}
