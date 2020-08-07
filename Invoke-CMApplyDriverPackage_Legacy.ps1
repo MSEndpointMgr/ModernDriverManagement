@@ -83,7 +83,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2020-08-05
+    Updated:     2020-08-07
 	
 	Minimum required version of ConfigMgr WebService: 1.6.0
 	Contributors: @CodyMathis123, @JamesMcwatty
@@ -157,6 +157,7 @@
 	3.0.5 - (2020-04-30) Added 7-Zip self extracting exe support for compressed driver packages
 	3.0.6 - (2020-07-24) Added support for Windows 10 version 2004 and additional logging for when constructing custom driver package objects for matching process
 	3.0.7 - (2020-08-05) Fixed a bug that would cause the script to crash in case the SKU input string from the driver package properties would contain a space character instead of a comma
+	3.0.8 - (2020-08-07) Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, for instance with duplicate entries
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -1373,9 +1374,6 @@ Process {
 			[PSCustomObject]$ComputerData
 		)
 
-		# Remove any space characters from driver package input data and replace them with a comma instead
-		$DriverPackageInput = $DriverPackageInput.Replace(" ", ",")
-
 		# Handle multiple SystemSKU's from driver package input and determine the proper delimiter
 		if ($DriverPackageInput -match ",") {
 			$SystemSKUDelimiter = ","
@@ -1383,6 +1381,9 @@ Process {
 		if ($DriverPackageInput -match ";") {
 			$SystemSKUDelimiter = ";"
 		}
+
+		# Remove any space characters from driver package input data, replace them with a comma instead and ensure there's no duplicate entries
+		$DriverPackageInputArray = $DriverPackageInput.Replace(" ", ",").Split($SystemSKUDelimiter) | Select-Object -Unique
 
 		# Construct custom object for return value
 		$SystemSKUDetectionResult = [PSCustomObject]@{
@@ -1396,7 +1397,7 @@ Process {
 			$SystemSKUTable = @{}
 
 			# Attempt to match for each SystemSKU item based on computer data input
-			foreach ($SystemSKUItem in ($DriverPackageInput -split $SystemSKUDelimiter)) {
+			foreach ($SystemSKUItem in $DriverPackageInputArray) {
 				if ($ComputerData.SystemSKU -match $SystemSKUItem) {
 					# Add key value pair with match success
 					$SystemSKUTable.Add($SystemSKUItem, $true)
