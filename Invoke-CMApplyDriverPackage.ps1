@@ -977,7 +977,7 @@ Process {
 					}
 					else {
 						Write-CMLogEntry -Value " - Querying AdminService for driver package instances" -Severity 1
-						$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object { $_.PackageName -notmatch "Pilot" -and $_.PackageName -notmatch "Retired" }
+						$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object { $_.Name -notmatch "Pilot" -and $_.Name -notmatch "Retired" }
 					}
 
                 }
@@ -988,7 +988,7 @@ Process {
 					}
 					else {
 						Write-CMLogEntry -Value " - Querying AdminService for driver package instances" -Severity 1
-						$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object { $_.PackageName -match "Pilot" }
+						$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object { $_.Name -match "Pilot" }
 					}
                 }
             }
@@ -1374,7 +1374,7 @@ Process {
 			
 			try {
 				# Attempt to retrieve fallback driver packages from ConfigMgr WebService
-				$FallbackDriverPackages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'Driver Fallback Package')" | Where-Object { $_.PackageName -notmatch "Pilot" -and $_.PackageName -notmatch "Retired" }
+				$FallbackDriverPackages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'Driver Fallback Package')" | Where-Object { $_.Name -notmatch "Pilot" -and $_.Name -notmatch "Retired" }
 			
 				if ($FallbackDriverPackages -ne $null) {
 					Write-CMLogEntry -Value " - Retrieved a total of '$(($FallbackDriverPackages | Measure-Object).Count)' fallback driver packages from web service matching 'Driver Fallback Package' within the name" -Severity 1
