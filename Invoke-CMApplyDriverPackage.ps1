@@ -177,9 +177,6 @@
 						 that the script requires. For more information, please refer to the embedded examples of how to use this script or refer to the official documentation at https://www.msendpointmgr.com/modern-driver-management.
 	4.0.1 - (2020-07-24) Fixed an issue where an improper variable name was used instead of $DriverPackageCompressedFile
 	4.0.2 - (2020-08-07) Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, e.g. with spaces as a delimiter or with duplicate entries
-	4.0.2 JM - (2020-08-28) Fixed an issue where a systemsku with : in it would break driver detection for that sku
-							Fixed issue where space in the SystemSKU would cause $DriverPackageInputArray in Confirm-SystemSKU to have an empty array
-							Fixed issue where falling back to Confirm-ComputerModel would cause the script to error out from to many matches.  Disabled the Fallback
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -1250,9 +1247,7 @@ Process {
 				DateCreated = $DriverPackageItem.SourceDate
 				Manufacturer = $DriverPackageItem.Manufacturer
 				Model = $null
-				# Changed this due to finding a surface laptop with a : in the sku Drivers - Microsoft Surface Laptop 3 - Intel 13 - Windows 10 1909 x64 (Models included:Surface_Laptop_3_1867:1868)
-				# This splits the Description into two arrays at the first :
-				SystemSKU = ($DriverPackageItem.Description -split ":",2).Replace("(", "").Replace(")", "")[1]
+				SystemSKU = $DriverPackageItem.Description.Split(":").Replace("(", "").Replace(")", "")[1]
 				OSName = $null
 				OSVersion = $null
 				Architecture = $null 
@@ -1300,12 +1295,9 @@ Process {
 					$ComputerDetectionMethodResult = Confirm-SystemSKU -DriverPackageInput $DriverPackageDetails.SystemSKU -ComputerData $ComputerData -ErrorAction Stop
 					
 					# Fall back to using computer model as the detection method instead of SystemSKU
-					# The below was causing surfaces to fail with the below error
-					#  - WARNING: Computer detection method is currently 'SystemSKU', and multiple packages have been matched but with different SystemSKU value
-					#  - WARNING: This should not be a possible scenario, please reach out to the developers of this script
-					#if ($ComputerDetectionMethodResult.Detected -eq $false) {
-					#	$ComputerDetectionMethodResult = Confirm-ComputerModel -DriverPackageInput $DriverPackageDetails.Model -ComputerData $ComputerData
-					#}
+					if ($ComputerDetectionMethodResult.Detected -eq $false) {
+						$ComputerDetectionMethodResult = Confirm-ComputerModel -DriverPackageInput $DriverPackageDetails.Model -ComputerData $ComputerData
+					}
 				}
 				"ComputerModel" {
 					# Attempt to match against computer model
@@ -1625,14 +1617,7 @@ Process {
 	
 			# Attempt to match for each SystemSKU item based on computer data input
 			foreach ($SystemSKUItem in $DriverPackageInputArray) {
-				# $DriverPackageInput that had spaces in it was causing an empty array to be added into $DrivePackageInputArray
-				# To reproduce $test="Surface_Go_1824_Consumer, Surface_Go_1824_Commercial"; $test.Replace(" ", ",").Split($SystemSKUDelimiter) | Select-Object -Unique
-				if($SystemSKUItem -eq "")
-				{
-					# Add key value pair with match failure
-					$SystemSKUTable.Add($SystemSKUItem, $false)
-				}
-				elseif ($ComputerData.SystemSKU -match $SystemSKUItem) {
+				if ($ComputerData.SystemSKU -match $SystemSKUItem) {
 					# Add key value pair with match success
 					$SystemSKUTable.Add($SystemSKUItem, $true)
 	
