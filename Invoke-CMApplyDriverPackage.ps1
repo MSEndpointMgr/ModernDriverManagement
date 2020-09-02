@@ -177,6 +177,7 @@
 						 that the script requires. For more information, please refer to the embedded examples of how to use this script or refer to the official documentation at https://www.msendpointmgr.com/modern-driver-management.
 	4.0.1 - (2020-07-24) Fixed an issue where an improper variable name was used instead of $DriverPackageCompressedFile
 	4.0.2 - (2020-08-07) Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, e.g. with spaces as a delimiter or with duplicate entries
+	4.0.3 - (2020-08-28) Fixed an issue where the script would fail in case the driver package was missing SystemSKU values
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -1287,16 +1288,21 @@ Process {
 			else {
 				$DetectionMethodsCount = 3
 			}
-			Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageItem.PackageID)]: Processing driver package with $($DetectionMethodsCount) detection methods: $($DriverPackageItem.Name)" -Severity 1
+			Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageDetails.PackageID)]: Processing driver package with $($DetectionMethodsCount) detection methods: $($DriverPackageDetails.PackageName)" -Severity 1
 
 			switch ($ComputerDetectionMethod) {
 				"SystemSKU" {
-					# Attempt to match against SystemSKU
-					$ComputerDetectionMethodResult = Confirm-SystemSKU -DriverPackageInput $DriverPackageDetails.SystemSKU -ComputerData $ComputerData -ErrorAction Stop
-					
-					# Fall back to using computer model as the detection method instead of SystemSKU
-					if ($ComputerDetectionMethodResult.Detected -eq $false) {
-						$ComputerDetectionMethodResult = Confirm-ComputerModel -DriverPackageInput $DriverPackageDetails.Model -ComputerData $ComputerData
+					if ([string]::IsNullOrEmpty($DriverPackageDetails.SystemSKU)) {
+						Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageDetails.PackageID)]: Driver package was skipped due to missing SystemSKU values in description field" -Severity 2
+					}
+					else {
+						# Attempt to match against SystemSKU
+						$ComputerDetectionMethodResult = Confirm-SystemSKU -DriverPackageInput $DriverPackageDetails.SystemSKU -ComputerData $ComputerData -ErrorAction Stop
+						
+						# Fall back to using computer model as the detection method instead of SystemSKU
+						if ($ComputerDetectionMethodResult.Detected -eq $false) {
+							$ComputerDetectionMethodResult = Confirm-ComputerModel -DriverPackageInput $DriverPackageDetails.Model -ComputerData $ComputerData
+						}
 					}
 				}
 				"ComputerModel" {
