@@ -177,6 +177,7 @@
 						 that the script requires. For more information, please refer to the embedded examples of how to use this script or refer to the official documentation at https://www.msendpointmgr.com/modern-driver-management.
 	4.0.1 - (2020-07-24) Fixed an issue where an improper variable name was used instead of $DriverPackageCompressedFile
 	4.0.2 - (2020-08-07) Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, e.g. with spaces as a delimiter or with duplicate entries
+	4.0.3 - (2020-08-28) Fixed an issue where the script would fail in case the driver package was missing SystemSKU values
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -1287,16 +1288,21 @@ Process {
 			else {
 				$DetectionMethodsCount = 3
 			}
-			Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageItem.PackageID)]: Processing driver package with $($DetectionMethodsCount) detection methods: $($DriverPackageItem.Name)" -Severity 1
+			Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageDetails.PackageID)]: Processing driver package with $($DetectionMethodsCount) detection methods: $($DriverPackageDetails.PackageName)" -Severity 1
 
 			switch ($ComputerDetectionMethod) {
 				"SystemSKU" {
-					# Attempt to match against SystemSKU
-					$ComputerDetectionMethodResult = Confirm-SystemSKU -DriverPackageInput $DriverPackageDetails.SystemSKU -ComputerData $ComputerData -ErrorAction Stop
-					
-					# Fall back to using computer model as the detection method instead of SystemSKU
-					if ($ComputerDetectionMethodResult.Detected -eq $false) {
-						$ComputerDetectionMethodResult = Confirm-ComputerModel -DriverPackageInput $DriverPackageDetails.Model -ComputerData $ComputerData
+					if ([string]::IsNullOrEmpty($DriverPackageDetails.SystemSKU)) {
+						Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageDetails.PackageID)]: Driver package was skipped due to missing SystemSKU values in description field" -Severity 2
+					}
+					else {
+						# Attempt to match against SystemSKU
+						$ComputerDetectionMethodResult = Confirm-SystemSKU -DriverPackageInput $DriverPackageDetails.SystemSKU -ComputerData $ComputerData -ErrorAction Stop
+						
+						# Fall back to using computer model as the detection method instead of SystemSKU
+						if ($ComputerDetectionMethodResult.Detected -eq $false) {
+							$ComputerDetectionMethodResult = Confirm-ComputerModel -DriverPackageInput $DriverPackageDetails.Model -ComputerData $ComputerData
+						}
 					}
 				}
 				"ComputerModel" {
@@ -1972,6 +1978,126 @@ Process {
 		}
 	}
 
+    function Compare-DriverPackageVersion {
+		switch ($Script:DeploymentMode) {
+			"DriverUpdate" {
+                $NewDriversAvailable = $false
+                Write-CMLogEntry -Value "[CheckPreviousInstall]: Starting previous install registry check phase." -Severity 1
+                # Check registry for breadcrumbs left by previous driver update via Modern Driver Management
+
+                $PreviousInstallDate = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty InstallDate -ErrorAction SilentlyContinue
+                if ($PreviousInstallDate) { Write-CMLogEntry -Value "  - Previous install ran on $($PreviousInstallDate)." -Severity 1 }
+
+                $PreviousDeploymentType = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty DeploymentType -ErrorAction SilentlyContinue
+                if ($PreviousDeploymentType) { Write-CMLogEntry -Value "  - Previous install DeploymentType was $($PreviousDeploymentType)." -Severity 1 }
+
+                $PreviousName = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageName -ErrorAction SilentlyContinue
+                if ($PreviousName) { Write-CMLogEntry -Value "  - Previous install used package name $($PreviousName)." -Severity 1 }
+
+                $PreviousID = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageID -ErrorAction SilentlyContinue
+                if ($PreviousID) {
+                    if ($DriverPackageList[0].PackageID -eq $PreviousID){
+                        Write-CMLogEntry -Value "  - Previous install used the same matching available package ID, $($PreviousID)." -Severity 1
+                        Write-CMLogEntry -Value "  - Comparing package versions." -Severity 1
+
+                        $PreviousVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageVersion -ErrorAction SilentlyContinue
+                        if ($PreviousVersion) {
+        			        Write-CMLogEntry -Value "  - Previous install used package version $($PreviousVersion)." -Severity 1
+                            # Strip version strings of letters and spaces, adding a trailing ".0" to ensure it's a true version string
+                            # Dell uses the letter A and a number
+                            # Lenovo uses an integer of yyyymm from the release date
+                            # Hewlett-Package uses a version with a letter and a number
+                            # Microsoft already uses a version string
+                            $PreviousVersion = (($PreviousVersion -replace ' ','') -replace '[a-z]','') + '.0'
+                            $AvailableVersion = (($DriverPackageList[0].Version -replace ' ','') -replace '[a-z]','') + '.0'
+                           
+                            # Compare previously used package to currently available package
+                            if ([System.Version]$AvailableVersion -gt [System.Version]$PreviousVersion) {
+                                Write-CMLogEntry -Value "  - The matching available package version, $($DriverPackageList[0].Version), is newer and will be applied" -Severity 1
+                                $NewDriversAvailable = $true
+                            }
+                            else {
+                                Write-CMLogEntry -Value "  - Previous Modern Driver Management used the same matching available package version, $($DriverPackageList[0].Version)." -Severity 1
+                                Write-CMLogEntry -Value "  - The PC is already up to date, nothing more to do." -Severity 1
+                            }
+                        }
+                        else {
+                            Write-CMLogEntry -Value "  - Previous package version data not found." -Severity 1
+                            Write-CMLogEntry -Value "  - The matching available package version, $($DriverPackageList[0].Version), will be applied." -Severity 1
+                            $NewDriversAvailable = $true
+                        }
+			        }
+                    else {
+                        Write-CMLogEntry -Value "  - The previous install used a different package ID, $($PreviousID)." -Severity 1
+                        Write-CMLogEntry -Value "  - The matching available package ID is $($DriverPackageList[0].PackageID) and will be applied." -Severity 1
+                        $NewDriversAvailable = $true
+                    }
+                }
+                else {
+                    Write-CMLogEntry -Value "  - Previous Modern Driver Management usage data not found." -Severity 1
+                    Write-CMLogEntry -Value "  - The matching available package ID is $($DriverPackageList[0].PackageID) and will be applied." -Severity 1
+                    $NewDriversAvailable = $true
+                }
+                Write-CMLogEntry -Value "[CheckPreviousInstall]: Completed previous install check phase." -Severity 1
+            }
+			Default {
+				$NewDriversAvailable = $true
+			}
+		}
+		$TSEnvironment.Value("NewDriversAvailable") = $NewDriversAvailable
+        return $NewDriversAvailable
+	}
+
+	function Set-DriverPackageHistory {
+        # Saving driver package information to registry for future driver update comparison to ensure not running the same driver package version again.
+		switch ($Script:DeploymentMode) {
+			"BareMetal" {
+				# Mount Offline Image registry, save driver package info, unmount image registry
+				Write-CMLogEntry -Value "[SavePackageInfo]: - Attempting to mount offline image SYSTEM registry." -Severity 1
+                reg load HKLM\OfflineSOFTWARE C:\Windows\System32\config\SOFTWARE | Out-Null
+                New-Item -Path HKLM:\OfflineSOFTWARE -Name MSEndpointMgr
+                New-Item -Path HKLM:\OfflineSOFTWARE\MSEndpointMgr -Name ModernDriverManagement
+                New-ItemProperty -Path "HKLM:\OfflineSOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "InstallDate" -Value (Get-Date -UFormat %c) -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\OfflineSOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "DeploymentType" -Value $Script:DeploymentMode -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\OfflineSOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageName" -Value $DriverPackageList[0].Name -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\OfflineSOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageID" -Value $DriverPackageList[0].PackageID -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\OfflineSOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageVersion" -Value $DriverPackageList[0].Version -Force -PropertyType String
+                [gc]::Collect()
+                reg unload HKLM\OfflineSOFTWARE | Out-Null
+				Write-CMLogEntry -Value "[SavePackageInfo]: - Saved driver package info to registry for future reference." -Severity 1
+			}
+			"OSUpgrade" {
+				# Save driver package info
+                If (!(Test-Path -Path HKLM:\SOFTWARE\MSEndpointMgr)) { New-Item -Path HKLM:\SOFTWARE -Name MSEndpointMgr }
+                If (!(Test-Path -Path HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement)) { New-Item -Path HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement }
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "InstallDate" -Value (Get-Date -UFormat %c) -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "DeploymentType" -Value $Script:DeploymentMode -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageName" -Value $DriverPackageList[0].Name -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageID" -Value $DriverPackageList[0].PackageID -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageVersion" -Value $DriverPackageList[0].Version -Force -PropertyType String
+				Write-CMLogEntry -Value "[SavePackageInfo]: - Saved driver package info to registry for future reference." -Severity 1
+			}
+			"DriverUpdate" {
+				# Save driver package info
+                If (!(Test-Path -Path HKLM:\SOFTWARE\MSEndpointMgr)) { New-Item -Path HKLM:\SOFTWARE -Name MSEndpointMgr }
+                If (!(Test-Path -Path HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement)) { New-Item -Path HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement }
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "InstallDate" -Value (Get-Date -UFormat %c) -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "DeploymentType" -Value $Script:DeploymentMode -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageName" -Value $DriverPackageList[0].Name -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageID" -Value $DriverPackageList[0].PackageID -Force -PropertyType String
+                New-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" -Name "PackageVersion" -Value $DriverPackageList[0].Version -Force -PropertyType String
+				Write-CMLogEntry -Value "[SavePackageInfo]: - Saved driver package info to registry for future reference." -Severity 1
+			}
+			"PreCache" {
+				# Do not save driver package info because it has not been installed yet.
+			}
+			"PreStage" {
+				# Do not save driver package info because it has not been installed yet.
+			}
+		}
+	}
+
+
 	Write-CMLogEntry -Value "[ApplyDriverPackage]: Apply Driver Package process initiated" -Severity 1
 	if ($PSCmdLet.ParameterSetName -like "Debug") {
 		Write-CMLogEntry -Value " - Apply driver package process initiated in debug mode" -Severity 1
@@ -2076,18 +2202,30 @@ Process {
 
 		# At this point, the code below here is not allowed to be executed in debug mode, as it requires access to the Microsoft.SMS.TSEnvironment COM object
 		if ($PSCmdLet.ParameterSetName -notlike "Debug") {
-			Write-CMLogEntry -Value "[DriverPackageDownload]: Starting driver package download phase" -Severity 1
+            
+            # Checking for previous driver package usage to ensure not trying to upgrade with the same package version again and again.
+            $NewDriversAvailable = Compare-DriverPackageVersion
 
-			# Attempt to download the matched driver package content files from distribution point
-			$DriverPackageContentLocation = Invoke-DownloadDriverPackageContent
+            if ($NewDriversAvailable -eq $true) {
 
-			Write-CMLogEntry -Value "[DriverPackageDownload]: Completed driver package download phase" -Severity 1
-			Write-CMLogEntry -Value "[DriverPackageInstall]: Starting driver package install phase" -Severity 1
+			    Write-CMLogEntry -Value "[DriverPackageDownload]: Starting driver package download phase" -Severity 1
 
-			# Depending on deployment type, take action accordingly when applying the driver package files
-			Install-DriverPackageContent -ContentLocation $DriverPackageContentLocation
+			    # Attempt to download the matched driver package content files from distribution point
+			    $DriverPackageContentLocation = Invoke-DownloadDriverPackageContent
 
-			Write-CMLogEntry -Value "[DriverPackageInstall]: Completed driver package install phase" -Severity 1
+			    Write-CMLogEntry -Value "[DriverPackageDownload]: Completed driver package download phase" -Severity 1
+			    Write-CMLogEntry -Value "[DriverPackageInstall]: Starting driver package install phase" -Severity 1
+
+			    # Depending on deployment type, take action accordingly when applying the driver package files
+			    Install-DriverPackageContent -ContentLocation $DriverPackageContentLocation
+
+			    Write-CMLogEntry -Value "[DriverPackageInstall]: Completed driver package install phase" -Severity 1
+                
+                Set-DriverPackageHistory
+            }
+            else {
+                Write-CMLogEntry -Value "[CheckPreviousInstall]: Skipping driver upgrade because the PC has already applied the latest driver package currently available." -Severity 1
+            }
 		}
 		else {
 			Write-CMLogEntry -Value " - Script has successfully completed debug mode" -Severity 1
