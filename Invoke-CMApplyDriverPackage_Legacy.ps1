@@ -1758,24 +1758,25 @@ Process {
 			"DriverUpdate" {
                 $NewDriversAvailable = $false
                 Write-CMLogEntry -Value "[CheckPreviousInstall]: Starting previous install registry check phase." -Severity 1
+                
                 # Check registry for breadcrumbs left by previous driver update via Modern Driver Management
+                If (Test-Path -Path HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement) {
+                    $PreviousInstallDate = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty InstallDate -ErrorAction SilentlyContinue
+                    $PreviousDeploymentType = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty DeploymentType -ErrorAction SilentlyContinue
+                    $PreviousName = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageName -ErrorAction SilentlyContinue
+                    $PreviousID = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageID -ErrorAction SilentlyContinue
+		    $PreviousVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageVersion -ErrorAction SilentlyContinue
+                }
 
-                $PreviousInstallDate = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty InstallDate -ErrorAction SilentlyContinue
                 if ($PreviousInstallDate) { Write-CMLogEntry -Value "  - Previous install ran on $($PreviousInstallDate)." -Severity 1 }
-
-                $PreviousDeploymentType = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty DeploymentType -ErrorAction SilentlyContinue
                 if ($PreviousDeploymentType) { Write-CMLogEntry -Value "  - Previous install DeploymentType was $($PreviousDeploymentType)." -Severity 1 }
-
-                $PreviousName = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageName -ErrorAction SilentlyContinue
                 if ($PreviousName) { Write-CMLogEntry -Value "  - Previous install used package name $($PreviousName)." -Severity 1 }
-
-                $PreviousID = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageID -ErrorAction SilentlyContinue
                 if ($PreviousID) {
                     if ($DriverPackageList[0].PackageID -eq $PreviousID){
                         Write-CMLogEntry -Value "  - Previous install used the same matching available package ID, $($PreviousID)." -Severity 1
                         Write-CMLogEntry -Value "  - Comparing package versions." -Severity 1
 
-                        $PreviousVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\MSEndpointMgr\ModernDriverManagement" | Select-Object -ExpandProperty PackageVersion -ErrorAction SilentlyContinue
+                        
                         if ($PreviousVersion) {
         			        Write-CMLogEntry -Value "  - Previous install used package version $($PreviousVersion)." -Severity 1
                             # Strip version strings of letters and spaces, adding a trailing ".0" to ensure it's a true version string
@@ -1815,10 +1816,10 @@ Process {
                 }
                 Write-CMLogEntry -Value "[CheckPreviousInstall]: Completed previous install check phase." -Severity 1
             }
-			Default {
+			default {
 				$NewDriversAvailable = $true
 			}
-		}
+        }
 		$TSEnvironment.Value("NewDriversAvailable") = $NewDriversAvailable
         return $NewDriversAvailable
 	}
