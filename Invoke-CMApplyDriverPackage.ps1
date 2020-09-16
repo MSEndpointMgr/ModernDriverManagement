@@ -107,7 +107,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2020-08-07
+    Updated:     2020-09-16
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -188,6 +188,7 @@
 	4.0.4 - (2020-09-10) - IMPORTANT: This update addresses a change in Driver Automation Tool version 6.4.9 that comes with a change in naming HP driver packages such as 'Drivers - HP EliteBook x360 1030 G2 Base Model - Windows 10 1909 x64' instead of Hewlett-Packard in the name.
 						   Before changing to version 4.0.4 of this script, ensure Driver Automation Tool have been executed and all HP driver packages now reflect these changes.
 						 - Added support for decompressing WIM driver packages.
+	4.0.5 - (2020-09-16) - Fixed an issue for driver package compressed WIM support where it could not mount the file as the location was not empty, thanks to @SuneThomsenDK for reporting this.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -1939,10 +1940,26 @@ Process {
 				}
 				"*.wim" {
 					try {
+						# Create mount location for driver package WIM file
+						$DriverPackageMountLocation = Join-Path -Path $ContentLocation -ChildPath "Mount"
+						if (-not(Test-Path -Path $DriverPackageMountLocation)) {
+							Write-CMLogEntry -Value " - Creating mount location directory: $($DriverPackageMountLocation)" -Severity 1
+							New-Item -Path $DriverPackageMountLocation -ItemType "Directory" -Force | Out-Null
+						}
+					}
+					catch [System.Exception] {
+						Write-CMLogEntry -Value " - Failed to create mount location for WIM file. Error message: $($_.Exception.Message)" -Severity 3
+						
+						# Throw terminating error
+						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+					}
+
+					try {
 						# Expand compressed driver package WIM file
 						Write-CMLogEntry -Value " - Attempting to mount driver package content WIM file: $($DriverPackageCompressedFile.Name)" -Severity 1
-						Write-CMLogEntry -Value " - Mount location: $($ContentLocation)" -Severity 1
-						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $ContentLocation -Index 1 -ErrorAction Stop
+						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
+						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file" -Severity 1
 					}
 					catch [System.Exception] {
@@ -2044,7 +2061,7 @@ Process {
 					try {
 						# Attempt to dismount compressed driver package content WIM file
 						Write-CMLogEntry -Value " - Attempting to dismount driver package content WIM file: $($DriverPackageCompressedFile.Name)" -Severity 1
-						Write-CMLogEntry -Value " - Mount location: $($ContentLocation)" -Severity 1
+						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
 						Dismount-WindowsImage -Path $DriverPackageCompressedFile.FullName -Discard -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully dismounted driver package content WIM file" -Severity 1
 					}
