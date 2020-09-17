@@ -2062,7 +2062,7 @@ Process {
 						# Attempt to dismount compressed driver package content WIM file
 						Write-CMLogEntry -Value " - Attempting to dismount driver package content WIM file: $($DriverPackageCompressedFile.Name)" -Severity 1
 						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
-						Dismount-WindowsImage -Path $DriverPackageCompressedFile.FullName -Discard -ErrorAction Stop
+						Dismount-WindowsImage -Path $DriverPackageMountLocation -Discard -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully dismounted driver package content WIM file" -Severity 1
 					}
 					catch [System.Exception] {
