@@ -76,7 +76,7 @@
 	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -DebugMode -TSPackageID "P0100001"
 
 	# Run in a debug mode for testing purposes and overriding the automatically detected computer details (could be executed basically anywhere):
-	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -DebugMode -TSPackageID "P0100001" -Manufacturer "Hewlett-Packard" -ComputerModel "HP EliteBook 820 G5" -SystemSKU "1234"
+	.\Invoke-CMApplyDriverPackage.ps1 -URI "http://CM01.domain.com/ConfigMgrWebService/ConfigMgr.asmx" -SecretKey "12345" -Filter "Drivers" -DebugMode -TSPackageID "P0100001" -Manufacturer "HP" -ComputerModel "HP EliteBook 820 G5" -SystemSKU "1234"
 
 .NOTES
     FileName:    Invoke-CMApplyDriverPackage.ps1
@@ -158,6 +158,8 @@
 	3.0.6 - (2020-07-24) Added support for Windows 10 version 2004 and additional logging for when constructing custom driver package objects for matching process
 	3.0.7 - (2020-08-05) Fixed a bug that would cause the script to crash in case the SKU input string from the driver package properties would contain a space character instead of a comma
 	3.0.8 - (2020-08-07) Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, for instance with duplicate entries
+	3.0.9 - (2020-09-10) IMPORTANT: This update addresses a change in Driver Automation Tool version 6.4.9 that comes with a change in naming HP driver packages such as 'Drivers - HP EliteBook x360 1030 G2 Base Model - Windows 10 1909 x64' instead of Hewlett-Packard in the name.
+						 Before changing to version 3.0.9 of this script, ensure Driver Automation Tool have been executed and all HP driver packages now reflect these changes.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -818,12 +820,12 @@ Process {
                 $ComputerDetails.SystemSKU = Get-WmiObject -Namespace "root\wmi" -Class "MS_SystemInformation" | Select-Object -ExpandProperty SystemSKU
             }
             "*HP*" {
-                $ComputerDetails.Manufacturer = "Hewlett-Packard"
+                $ComputerDetails.Manufacturer = "HP"
                 $ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
                 $ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace "root\WMI").BaseBoardProduct.Trim()
             }
             "*Hewlett-Packard*" {
-                $ComputerDetails.Manufacturer = "Hewlett-Packard"
+                $ComputerDetails.Manufacturer = "HP"
                 $ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
                 $ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace "root\WMI").BaseBoardProduct.Trim()
             }
@@ -1039,6 +1041,9 @@ Process {
 			switch ($DriverPackageItem.PackageManufacturer) {
 				"Hewlett-Packard" {
 					$DriverPackageDetails.Model = $DriverPackageItem.PackageName.Replace("Hewlett-Packard", "HP").Replace(" - ", ":").Split(":").Trim()[1]
+				}
+				"HP" {
+					$DriverPackageDetails.Model = $DriverPackageItem.PackageName.Replace(" - ", ":").Split(":").Trim()[1]
 				}
 				default {
 					$DriverPackageDetails.Model = $DriverPackageItem.PackageName.Replace($DriverPackageItem.PackageManufacturer, "").Replace(" - ", ":").Split(":").Trim()[1]

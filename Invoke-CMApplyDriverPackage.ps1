@@ -56,6 +56,9 @@
 .PARAMETER DriverInstallMode
 	Specify whether to install drivers using DISM.exe with recurse option or spawn a new process for each driver.
 
+.PARAMETER PreCachePath
+	Specify a custom path for the PreCache directory, overriding the default CCMCache directory.
+
 .PARAMETER Manufacturer
 	Override the automatically detected computer manufacturer when running in debug mode.
 
@@ -87,6 +90,9 @@
 	# Detect and download (pre-caching content) during OS upgrade with ConfigMgr:
 	.\Invoke-CMApplyDriverPackage.ps1 -PreCache -Endpoint "CM01.domain.com" -TargetOSVersion 1909
 
+	# Detect and download (pre-caching content) to a custom path during OS upgrade with ConfigMgr:
+	.\Invoke-CMApplyDriverPackage.ps1 -PreCache -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -PreCachePath "C:\Windows\Temp\DriverPackage"
+
 	# Run in a debug mode for testing purposes (to be used locally on the computer model):
 	.\Invoke-CMApplyDriverPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -TargetOSVersion 1909
 
@@ -101,83 +107,88 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2020-08-07
+    Updated:     2020-09-16
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
     Version history:
-    1.0.0 - (2017-03-27) Script created
-    1.0.1 - (2017-04-18) Updated script with better support for multiple vendor entries
-    1.0.2 - (2017-04-22) Updated script with support for multiple operating systems driver packages, e.g. Windows 8.1 and Windows 10	
-    1.0.3 - (2017-05-03) Updated script with support for manufacturer specific Windows 10 versions for HP and Microsoft
-    1.0.4 - (2017-05-04) Updated script to trim any white spaces trailing the computer model detection from WMI
-    1.0.5 - (2017-05-05) Updated script to pull the model for Lenovo systems from the correct WMI class
-    1.0.6 - (2017-05-22) Updated script to detect the proper package based upon OS Image version referenced in task sequence when multiple packages are detected
-    1.0.7 - (2017-05-26) Updated script to filter OS when multiple model matches are found for different OS platforms
-    1.0.8 - (2017-06-26) Updated script with improved computer name matching when filtering out packages returned from the web service
-    1.0.9 - (2017-08-25) Updated script to read package description for Microsoft models in order to match the WMI value contained within
-    1.1.0 - (2017-08-29) Updated script to only check for the OS build version instead of major, minor, build and revision for HP systems. $OSImageVersion will now only contain the most recent version if multiple OS images is referenced in the Task Sequence
-    1.1.1 - (2017-09-12) Updated script to match the system SKU for Dell, Lenovo and HP models. Added architecture check for matching packages
-    1.1.2 - (2017-09-15) Replaced computer model matching with SystemSKU. Added script with support for different exit codes
-    1.1.3 - (2017-09-18) Added support for downloading package content instead of setting OSDDownloadDownloadPackages variable
-    1.1.4 - (2017-09-19) Added support for installing driver package directly from this script instead of running a seperate DISM command line step
-    1.1.5 - (2017-10-12) Added support for in full OS driver maintenance updates
-    1.1.6 - (2017-10-29) Fixed an issue when detecting Microsoft manufacturer information
-    1.1.7 - (2017-10-29) Changed the OSMaintenance parameter from a string to a switch object, make sure that your implementation of this is amended in any task sequence steps
-    1.1.8 - (2017-11-07) Added support for driver fallback packages when the UseDriverFallback param is used
-	1.1.9 - (2017-12-12) Added additional output for failure to detect system SKU value from WMI
-    1.2.0 - (2017-12-14) Fixed an issue where the HP packages would not properly be matched against the OS image version returned by the web service
-    1.2.1 - (2018-01-03) IMPORTANT - OSMaintenance switch has been replaced by the DeploymentType parameter. In order to support the default behavior (BareMetal), OSUpgrade and DriverUpdate operational
-                         modes for the script, this change was required. Update your task sequence configuration before you use this update.
-	2.0.0 - (2018-01-10) Updates include support for machines with blank system SKU values and the ability to run BIOS & driver updates in the FULL OS
-	2.0.1 - (2018-01-18) Fixed a regex issue when attempting to fallback to computer model instead of SystemSKU
-	2.0.2 - (2018-01-24) Re-constructed the logic for matching driver package to begin with computer model or SystemSKU (SystemSKU takes precedence before computer model) and improved the logging when matching for driver packages
-	2.0.3 - (2018-01-25) Added a fix for multiple manufacturer package matches not working for Windows 7. Fixed an issue where SystemSKU was used and multiple driver packages matched. Added script line logging when the script cought an exception.
-	2.0.4 - (2018-01-26) Changed from using a foreach loop to a for loop in reverse to remove driver packages that was matched by SystemSKU but does not match the computer model
-	2.0.5 - (2018-01-29) Replaced Add-Content with Out-File for issue with file lock causing not all log entries to be written to the ApplyDriverPackage.log file
-	2.0.6 - (2018-02-21) Updated to cater for the presence of underscores in Microsoft Surface models
-	2.0.7 - (2018-02-25) Added support for a DebugMode switch for running script outside of a task sequence for driver package detection
-	2.0.8 - (2018-02-25) Added a check to bail out the script if computer model and SystemSKU are null or an empty string
-	2.0.9 - (2018-05-07) Removed exit code 34 event. DISM will now continue to process drivers if a single or multiple failures occur in order to proceed with the task sequence
-	2.1.0 - (2018-06-01) IMPORTANT: From this version, ConfigMgr WebService 1.6 is required. Added a new parameter named OSImageTSVariableName that accepts input of a task sequence variable. This task sequence variable should contain the OS Image package ID of 
-						 the desired Operating System Image selected in an Apply Operating System step. This new functionality allows for using multiple Apply Operating System steps in a single task sequence. Added Panasonic for manufacturer detection.
-						 Improved logic with fallback from SystemSKU to computer model. Script will now fall back to computer model if there was no match to the SystemSKU. This still requires that the SystemSKU contains a value and is not null or empty, otherwise 
-						 the logic will directly fall back to computer model. A new parameter named DriverInstallMode has been added to control how drivers are installed for BareMetal deployment. Valid inputs are Single or Recurse.
-	2.1.1 - (2018-08-28) Code tweaks and changes for Windows build to version switch in the Driver Automation Tool. Improvements to the SystemSKU reverse section for HP models and multiple SystemSKU values from WMI
-	2.1.2 - (2018-08-29) Added code to handle Windows 10 version specific matching and also support matching for the name only
-	2.1.3 - (2018-09-03) Code tweak to Windows 10 version matching process
-	2.1.4 - (2018-09-18) Added support to override the task sequence package ID retrieved from _SMSTSPackageID when the Apply Operating System step is in a child task sequence
-	2.1.5 - (2018-09-18) Updated the computer model detection logic that replaces parts of the string from the PackageName property to retrieve the computer model only
-	2.1.6 - (2019-01-28) Fixed an issue with the recurse injection of drivers for a single detected driver package that was using an unassigned variable
-	2.1.7 - (2019-02-13) Added support for Windows 10 version 1809 in the Get-OSDetails function
-	2.1.8 - (2019-02-13) Added trimming of manufacturer and models data gathering from WMI
-	2.1.9 - (2019-03-06) Added support for non-terminating error when no matching driver packages where detected for OSUpgrade and DriverUpdate deployment types
-	2.2.0 - (2019-03-08) Fixed an issue when attempting to run the script with -DebugMode switch that would cause it to break when it couldn't load the TS environment
-	2.2.1 - (2019-03-29) New deployment type named 'PreCache' that allows the script to run in a pre-caching mode in a content pre-cache task sequence. When this deployment type is used, content will only be downloaded if it doesn't already
-						 exist in the CCMCache. New parameter OperationalMode (defaults to Production) for better handling driver packages set for Pilot or Production deployment.
-	2.2.2 - (2019-05-14) Improved the Surface model detection from WMI
-	2.2.3 - (2019-05-14) Fixed an issue when multiple matching driver packages for a given model would only attempt to format the computer model name correctly for HP computers
-	2.2.4 - (2019-08-09) Fixed an issue on OperationalMode Production to filter out pilot and retired packages
-	2.2.5 - (2019-12-02) Added support for Windows 10 1903, 1909 and additional matching for Microsoft Surface devices (DAT 6.4.0 or neweer)
-	2.2.6 - (2020-02-06) Fixed an issue where the single driver injection mode for BareMetal deployments would fail if there was a space in the driver inf name
-	2.2.7 - (2020-02-10) Added a new parameter named TargetOSVersion. Use this parameter when DeploymentType is OSUpgrade and you don't want to rely on the OS version detected from the imported Operating System Upgrade Package or Operating System Image objects.
-						 This parameter should mainly be used as an override and was implemented due to drivers for Windows 10 1903 were incorrectly detected when deploying or upgrading to Windows 10 1909 using imported source files, not for a 
-                         reference image for Windows 10 1909 as the Enablement Package would have flipped the build change to 18363 in such an image.
-	3.0.0 - (2020-03-14) A complete re-written version of the script. Includes a much improved logging functionality. Script is now divided into phases, which are represented in the ApplyDriverPackage.log that will provide a better troubleshooting experience.
-						 Added support for AZW and Fujitsu computer manufacturer by request from the community. Extended DebugMode to allow for overriding computer details, which allows the script to be tested against any model and it doesn't require to be tested
-						 directly on the model itself.
-	3.0.1 - (2020-03-25) Added TargetOSVersion parameter to be allowed to used in DebugMode. Fixed an issue where DebugMode would not be allowed to run on virtual machines. Fixed an issue where ComputerDetectionMethod script variable would be set to ComputerModel from
-						 SystemSKU in case it couldn't match on the first driver package, leading to HP driver packages would always fail since they barely never match on the ComputerModel (they include 'Base Model', 'Notebook PC' etc.)
-	3.0.2 - (2020-03-29) Fixed a spelling mistake in the Manufacturer parameter.
-	3.0.3 - (2020-03-31) Small update to the Filter parameter's default value, it's now 'Drivers' instead of 'Driver'. Also added '64 bits' and '32 bits' to the translation function for the OS architecture of the current running task sequence.
-	3.0.4 - (2020-04-09) Changed the translation function for the OS architecture of the current running task sequence into using wildcard support instead of adding language specified values
-	3.0.5 - (2020-04-30) Added 7-Zip self extracting exe support for compressed driver packages
-	4.0.0 - (2020-06-29) IMPORTANT: From this version and onwards, usage of the ConfigMgr WebService has been deprecated. This version will only work with the built-in AdminService in ConfigMgr.
-						 Removed the DeploymentType parameter and replaced each deployment type with it's own switch parameter, e.g. -BareMetal, -DriverUpdate etc. Additional new parameters have been added, including the requirements of pre-defined Task Sequence variables 
-						 that the script requires. For more information, please refer to the embedded examples of how to use this script or refer to the official documentation at https://www.msendpointmgr.com/modern-driver-management.
-	4.0.1 - (2020-07-24) Fixed an issue where an improper variable name was used instead of $DriverPackageCompressedFile
-	4.0.2 - (2020-08-07) Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, e.g. with spaces as a delimiter or with duplicate entries
-	4.0.3 - (2020-08-28) Fixed an issue where the script would fail in case the driver package was missing SystemSKU values
+    1.0.0 - (2017-03-27) - Script created
+    1.0.1 - (2017-04-18) - Updated script with better support for multiple vendor entries
+    1.0.2 - (2017-04-22) - Updated script with support for multiple operating systems driver packages, e.g. Windows 8.1 and Windows 10	
+    1.0.3 - (2017-05-03) - Updated script with support for manufacturer specific Windows 10 versions for HP and Microsoft
+    1.0.4 - (2017-05-04) - Updated script to trim any white spaces trailing the computer model detection from WMI
+    1.0.5 - (2017-05-05) - Updated script to pull the model for Lenovo systems from the correct WMI class
+    1.0.6 - (2017-05-22) - Updated script to detect the proper package based upon OS Image version referenced in task sequence when multiple packages are detected
+    1.0.7 - (2017-05-26) - Updated script to filter OS when multiple model matches are found for different OS platforms
+    1.0.8 - (2017-06-26) - Updated script with improved computer name matching when filtering out packages returned from the web service
+    1.0.9 - (2017-08-25) - Updated script to read package description for Microsoft models in order to match the WMI value contained within
+    1.1.0 - (2017-08-29) - Updated script to only check for the OS build version instead of major, minor, build and revision for HP systems. $OSImageVersion will now only contain the most recent version if multiple OS images is referenced in the Task Sequence
+    1.1.1 - (2017-09-12) - Updated script to match the system SKU for Dell, Lenovo and HP models. Added architecture check for matching packages
+    1.1.2 - (2017-09-15) - Replaced computer model matching with SystemSKU. Added script with support for different exit codes
+    1.1.3 - (2017-09-18) - Added support for downloading package content instead of setting OSDDownloadDownloadPackages variable
+    1.1.4 - (2017-09-19) - Added support for installing driver package directly from this script instead of running a seperate DISM command line step
+    1.1.5 - (2017-10-12) - Added support for in full OS driver maintenance updates
+    1.1.6 - (2017-10-29) - Fixed an issue when detecting Microsoft manufacturer information
+    1.1.7 - (2017-10-29) - Changed the OSMaintenance parameter from a string to a switch object, make sure that your implementation of this is amended in any task sequence steps
+    1.1.8 - (2017-11-07) - Added support for driver fallback packages when the UseDriverFallback param is used
+	1.1.9 - (2017-12-12) - Added additional output for failure to detect system SKU value from WMI
+    1.2.0 - (2017-12-14) - Fixed an issue where the HP packages would not properly be matched against the OS image version returned by the web service
+    1.2.1 - (2018-01-03) - IMPORTANT - OSMaintenance switch has been replaced by the DeploymentType parameter. In order to support the default behavior (BareMetal), OSUpgrade and DriverUpdate operational
+                           modes for the script, this change was required. Update your task sequence configuration before you use this update.
+	2.0.0 - (2018-01-10) - Updates include support for machines with blank system SKU values and the ability to run BIOS & driver updates in the FULL OS
+	2.0.1 - (2018-01-18) - Fixed a regex issue when attempting to fallback to computer model instead of SystemSKU
+	2.0.2 - (2018-01-24) - Re-constructed the logic for matching driver package to begin with computer model or SystemSKU (SystemSKU takes precedence before computer model) and improved the logging when matching for driver packages
+	2.0.3 - (2018-01-25) - Added a fix for multiple manufacturer package matches not working for Windows 7. Fixed an issue where SystemSKU was used and multiple driver packages matched. Added script line logging when the script cought an exception.
+	2.0.4 - (2018-01-26) - Changed from using a foreach loop to a for loop in reverse to remove driver packages that was matched by SystemSKU but does not match the computer model
+	2.0.5 - (2018-01-29) - Replaced Add-Content with Out-File for issue with file lock causing not all log entries to be written to the ApplyDriverPackage.log file
+	2.0.6 - (2018-02-21) - Updated to cater for the presence of underscores in Microsoft Surface models
+	2.0.7 - (2018-02-25) - Added support for a DebugMode switch for running script outside of a task sequence for driver package detection
+	2.0.8 - (2018-02-25) - Added a check to bail out the script if computer model and SystemSKU are null or an empty string
+	2.0.9 - (2018-05-07) - Removed exit code 34 event. DISM will now continue to process drivers if a single or multiple failures occur in order to proceed with the task sequence
+	2.1.0 - (2018-06-01) - IMPORTANT: From this version, ConfigMgr WebService 1.6 is required. Added a new parameter named OSImageTSVariableName that accepts input of a task sequence variable. This task sequence variable should contain the OS Image package ID of 
+						   the desired Operating System Image selected in an Apply Operating System step. This new functionality allows for using multiple Apply Operating System steps in a single task sequence. Added Panasonic for manufacturer detection.
+						   Improved logic with fallback from SystemSKU to computer model. Script will now fall back to computer model if there was no match to the SystemSKU. This still requires that the SystemSKU contains a value and is not null or empty, otherwise 
+						   the logic will directly fall back to computer model. A new parameter named DriverInstallMode has been added to control how drivers are installed for BareMetal deployment. Valid inputs are Single or Recurse.
+	2.1.1 - (2018-08-28) - Code tweaks and changes for Windows build to version switch in the Driver Automation Tool. Improvements to the SystemSKU reverse section for HP models and multiple SystemSKU values from WMI
+	2.1.2 - (2018-08-29) - Added code to handle Windows 10 version specific matching and also support matching for the name only
+	2.1.3 - (2018-09-03) - Code tweak to Windows 10 version matching process
+	2.1.4 - (2018-09-18) - Added support to override the task sequence package ID retrieved from _SMSTSPackageID when the Apply Operating System step is in a child task sequence
+	2.1.5 - (2018-09-18) - Updated the computer model detection logic that replaces parts of the string from the PackageName property to retrieve the computer model only
+	2.1.6 - (2019-01-28) - Fixed an issue with the recurse injection of drivers for a single detected driver package that was using an unassigned variable
+	2.1.7 - (2019-02-13) - Added support for Windows 10 version 1809 in the Get-OSDetails function
+	2.1.8 - (2019-02-13) - Added trimming of manufacturer and models data gathering from WMI
+	2.1.9 - (2019-03-06) - Added support for non-terminating error when no matching driver packages where detected for OSUpgrade and DriverUpdate deployment types
+	2.2.0 - (2019-03-08) - Fixed an issue when attempting to run the script with -DebugMode switch that would cause it to break when it couldn't load the TS environment
+	2.2.1 - (2019-03-29) - New deployment type named 'PreCache' that allows the script to run in a pre-caching mode in a content pre-cache task sequence. When this deployment type is used, content will only be downloaded if it doesn't already
+						   exist in the CCMCache. New parameter OperationalMode (defaults to Production) for better handling driver packages set for Pilot or Production deployment.
+	2.2.2 - (2019-05-14) - Improved the Surface model detection from WMI
+	2.2.3 - (2019-05-14) - Fixed an issue when multiple matching driver packages for a given model would only attempt to format the computer model name correctly for HP computers
+	2.2.4 - (2019-08-09) - Fixed an issue on OperationalMode Production to filter out pilot and retired packages
+	2.2.5 - (2019-12-02) - Added support for Windows 10 1903, 1909 and additional matching for Microsoft Surface devices (DAT 6.4.0 or neweer)
+	2.2.6 - (2020-02-06) - Fixed an issue where the single driver injection mode for BareMetal deployments would fail if there was a space in the driver inf name
+	2.2.7 - (2020-02-10) - Added a new parameter named TargetOSVersion. Use this parameter when DeploymentType is OSUpgrade and you don't want to rely on the OS version detected from the imported Operating System Upgrade Package or Operating System Image objects.
+						   This parameter should mainly be used as an override and was implemented due to drivers for Windows 10 1903 were incorrectly detected when deploying or upgrading to Windows 10 1909 using imported source files, not for a 
+                           reference image for Windows 10 1909 as the Enablement Package would have flipped the build change to 18363 in such an image.
+	3.0.0 - (2020-03-14) - A complete re-written version of the script. Includes a much improved logging functionality. Script is now divided into phases, which are represented in the ApplyDriverPackage.log that will provide a better troubleshooting experience.
+						   Added support for AZW and Fujitsu computer manufacturer by request from the community. Extended DebugMode to allow for overriding computer details, which allows the script to be tested against any model and it doesn't require to be tested
+						   directly on the model itself.
+	3.0.1 - (2020-03-25) - Added TargetOSVersion parameter to be allowed to used in DebugMode. 
+						 - Fixed an issue where DebugMode would not be allowed to run on virtual machines. Fixed an issue where ComputerDetectionMethod script variable would be set to ComputerModel from
+						   SystemSKU in case it couldn't match on the first driver package, leading to HP driver packages would always fail since they barely never match on the ComputerModel (they include 'Base Model', 'Notebook PC' etc.)
+	3.0.2 - (2020-03-29) - Fixed a spelling mistake in the Manufacturer parameter.
+	3.0.3 - (2020-03-31) - Small update to the Filter parameter's default value, it's now 'Drivers' instead of 'Driver'. Also added '64 bits' and '32 bits' to the translation function for the OS architecture of the current running task sequence.
+	3.0.4 - (2020-04-09) - Changed the translation function for the OS architecture of the current running task sequence into using wildcard support instead of adding language specified values
+	3.0.5 - (2020-04-30) - Added 7-Zip self extracting exe support for compressed driver packages
+	4.0.0 - (2020-06-29) - IMPORTANT: From this version and onwards, usage of the ConfigMgr WebService has been deprecated. This version will only work with the built-in AdminService in ConfigMgr.
+						   Removed the DeploymentType parameter and replaced each deployment type with it's own switch parameter, e.g. -BareMetal, -DriverUpdate etc. Additional new parameters have been added, including the requirements of pre-defined Task Sequence variables 
+						   that the script requires. For more information, please refer to the embedded examples of how to use this script or refer to the official documentation at https://www.msendpointmgr.com/modern-driver-management.
+	4.0.1 - (2020-07-24) - Fixed an issue where an improper variable name was used instead of $DriverPackageCompressedFile
+	4.0.2 - (2020-08-07) - Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, e.g. with spaces as a delimiter or with duplicate entries
+	4.0.3 - (2020-08-28) - Fixed an issue where the script would fail in case the driver package was missing SystemSKU values
+	4.0.4 - (2020-09-10) - IMPORTANT: This update addresses a change in Driver Automation Tool version 6.4.9 that comes with a change in naming HP driver packages such as 'Drivers - HP EliteBook x360 1030 G2 Base Model - Windows 10 1909 x64' instead of Hewlett-Packard in the name.
+						   Before changing to version 4.0.4 of this script, ensure Driver Automation Tool have been executed and all HP driver packages now reflect these changes.
+						 - Added support for decompressing WIM driver packages.
+	4.0.5 - (2020-09-16) - Fixed an issue for driver package compressed WIM support where it could not mount the file as the location was not empty, thanks to @SuneThomsenDK for reporting this.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -272,6 +283,10 @@ param (
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("Single", "Recurse")]
 	[string]$DriverInstallMode = "Recurse",
+
+	[parameter(Mandatory = $false, ParameterSetName = "PreCache", HelpMessage = "Specify a custom path for the PreCache directory, overriding the default CCMCache directory.")]
+	[ValidateNotNullOrEmpty()]
+	[string]$PreCachePath,
 
 	[parameter(Mandatory = $false, ParameterSetName = "Debug", HelpMessage = "Override the automatically detected computer manufacturer when running in debug mode.")]
 	[ValidateNotNullOrEmpty()]
@@ -1047,12 +1062,12 @@ Process {
                 $ComputerDetails.SystemSKU = Get-WmiObject -Namespace "root\wmi" -Class "MS_SystemInformation" | Select-Object -ExpandProperty SystemSKU
             }
             "*HP*" {
-                $ComputerDetails.Manufacturer = "Hewlett-Packard"
+                $ComputerDetails.Manufacturer = "HP"
                 $ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
                 $ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace "root\WMI").BaseBoardProduct.Trim()
             }
             "*Hewlett-Packard*" {
-                $ComputerDetails.Manufacturer = "Hewlett-Packard"
+                $ComputerDetails.Manufacturer = "HP"
                 $ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
                 $ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace "root\WMI").BaseBoardProduct.Trim()
             }
@@ -1255,14 +1270,22 @@ Process {
 			}
 			
 			# Add driver package model details depending on manufacturer to custom driver package details object
-			# - Hewlett-Packard computer models include 'HP' in the model property and requires special attention for detecting the proper model value from the driver package name property
-			switch ($DriverPackageItem.Manufacturer) {
-				"Hewlett-Packard" {
-					$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace("Hewlett-Packard", "HP").Replace(" - ", ":").Split(":").Trim()[1]
+			# - HP computer models require the manufacturer name to be a part of the model name, other manufacturers do not
+			try {
+				switch ($DriverPackageItem.Manufacturer) {
+					"Hewlett-Packard" {
+						$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace("Hewlett-Packard", "HP").Replace(" - ", ":").Split(":").Trim()[1]
+					}
+					"HP" {
+						$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace(" - ", ":").Split(":").Trim()[1]
+					}
+					default {
+						$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace($DriverPackageItem.Manufacturer, "").Replace(" - ", ":").Split(":").Trim()[1]
+					}
 				}
-				default {
-					$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace($DriverPackageItem.Manufacturer, "").Replace(" - ", ":").Split(":").Trim()[1]
-				}
+			}
+			catch [System.Exception] {
+				Write-CMLogEntry -Value "Failed. Error: $($_.Exception.Message)" -Severity 3
 			}
 
 			# Add driver package OS architecture details to custom driver package details object
@@ -1809,7 +1832,29 @@ Process {
 		# Depending on current deployment type, attempt to download driver package content
 		switch ($Script:PSCmdlet.ParameterSetName) {
 			"PreCache" {
-				$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "CCMCache" -DestinationVariableName "OSDDriverPackage"
+				if ($Script:PSBoundParameters["PreCachePath"]) {
+					if (-not(Test-Path -Path $Script:PreCachePath)) {
+						Write-CMLogEntry -Value " - Attempting to create PreCachePath directory, as it doesn't exist: $($Script:PreCachePath)" -Severity 1
+						
+						try {
+							New-Item -Path $PreCachePath -ItemType Directory -Force -ErrorAction Stop | Out-Null
+						}
+						catch [System.Exception] {
+							Write-CMLogEntry -Value " - Failed to create PreCachePath directory '$($Script:PreCachePath)'. Error message: $($_.Exception.Message)" -Severity 3
+							
+							# Throw terminating error
+							$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+							$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+						}
+					}
+
+					if (Test-Path -Path $Script:PreCachePath) {
+						$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "Custom" -DestinationVariableName "OSDDriverPackage" -CustomLocationPath "$($Script:PreCachePath)"
+					}
+				}
+				else {
+					$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "CCMCache" -DestinationVariableName "OSDDriverPackage"
+				}
 			}
 			default {
 				$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "Custom" -DestinationVariableName "OSDDriverPackage" -CustomLocationPath "%_SMSTSMDataPath%\DriverPackage"
@@ -1888,6 +1933,38 @@ Process {
 					else {
 						Write-CMLogEntry -Value " - An error occurred while decompressing 7-Zip driver package content file. Return code from self-extracing executable: $($ReturnCode)" -Severity 3
 
+						# Throw terminating error
+						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+					}
+				}
+				"*.wim" {
+					try {
+						# Create mount location for driver package WIM file
+						$DriverPackageMountLocation = Join-Path -Path $ContentLocation -ChildPath "Mount"
+						if (-not(Test-Path -Path $DriverPackageMountLocation)) {
+							Write-CMLogEntry -Value " - Creating mount location directory: $($DriverPackageMountLocation)" -Severity 1
+							New-Item -Path $DriverPackageMountLocation -ItemType "Directory" -Force | Out-Null
+						}
+					}
+					catch [System.Exception] {
+						Write-CMLogEntry -Value " - Failed to create mount location for WIM file. Error message: $($_.Exception.Message)" -Severity 3
+						
+						# Throw terminating error
+						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+					}
+
+					try {
+						# Expand compressed driver package WIM file
+						Write-CMLogEntry -Value " - Attempting to mount driver package content WIM file: $($DriverPackageCompressedFile.Name)" -Severity 1
+						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
+						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ErrorAction Stop
+						Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file" -Severity 1
+					}
+					catch [System.Exception] {
+						Write-CMLogEntry -Value " - Failed to mount driver package content WIM file. Error message: $($_.Exception.Message)" -Severity 3
+						
 						# Throw terminating error
 						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
@@ -1974,6 +2051,28 @@ Process {
 			"PreCache" {
 				# Driver package content downloaded successfully, log output and exit script
 				Write-CMLogEntry -Value " - Driver package content successfully downloaded and pre-cached to: $($ContentLocation)" -Severity 1
+			}
+		}
+
+		# Cleanup potential compressed driver package content
+		if ($DriverPackageCompressedFile -ne $null) {
+			switch -wildcard ($DriverPackageCompressedFile.Name) {
+				"*.wim" {
+					try {
+						# Attempt to dismount compressed driver package content WIM file
+						Write-CMLogEntry -Value " - Attempting to dismount driver package content WIM file: $($DriverPackageCompressedFile.Name)" -Severity 1
+						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
+						Dismount-WindowsImage -Path $DriverPackageMountLocation -Discard -ErrorAction Stop
+						Write-CMLogEntry -Value " - Successfully dismounted driver package content WIM file" -Severity 1
+					}
+					catch [System.Exception] {
+						Write-CMLogEntry -Value " - Failed to dismount driver package content WIM file. Error message: $($_.Exception.Message)" -Severity 3
+						
+						# Throw terminating error
+						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+					}
+				}
 			}
 		}
 	}
