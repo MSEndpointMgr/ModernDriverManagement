@@ -1406,7 +1406,6 @@ Process {
 			[parameter(Mandatory = $true, HelpMessage = "Specify the OS Image details object from Get-OSImageDetails function.")]
 			[ValidateNotNullOrEmpty()]
 			[PSCustomObject]$OSImageData
-
 		)
 		if ($Script:DriverPackageList.Count -eq 0) {
 			Write-CMLogEntry -Value " - Previous validation process could not find a match for a specific driver package, starting fallback driver package matching process" -Severity 1
