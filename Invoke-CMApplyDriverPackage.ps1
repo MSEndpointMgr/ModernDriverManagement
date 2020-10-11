@@ -189,6 +189,7 @@
 						   Before changing to version 4.0.4 of this script, ensure Driver Automation Tool have been executed and all HP driver packages now reflect these changes.
 						 - Added support for decompressing WIM driver packages.
 	4.0.5 - (2020-09-16) - Fixed an issue for driver package compressed WIM support where it could not mount the file as the location was not empty, thanks to @SuneThomsenDK for reporting this.
+	4.0.6 - (2020-10-11) - Improved the AdminServiceEndpointType detection logic to mainly use the 'InInternet' property from ClientInfo WMI class together with if any detected type of active MP candidate was detected.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -715,26 +716,39 @@ Process {
 				$Script:AdminServiceEndpointType = "Internal"
 			}
 			default {
-				Write-CMLogEntry -Value " - Attempting to determine AdminService endpoint type based on current active Management Point candidates" -Severity 1
+				Write-CMLogEntry -Value " - Attempting to determine AdminService endpoint type based on current active Management Point candidates and from ClientInfo class" -Severity 1
+
+				# Determine active MP candidates and if 
 				$ActiveMPCandidates = Get-WmiObject -Namespace "root\ccm\LocationServices" -Class "SMS_ActiveMPCandidate"
 				$ActiveMPInternalCandidatesCount = ($ActiveMPCandidates | Where-Object { $PSItem.Type -like "Assigned" } | Measure-Object).Count
 				$ActiveMPExternalCandidatesCount = ($ActiveMPCandidates | Where-Object { $PSItem.Type -like "Internet" } | Measure-Object).Count
-				
-				switch ($ActiveMPInternalCandidatesCount) {
-					0 {
+
+				# Determine if ConfigMgr client has detected if the computer is currently on internet or intranet
+				$CMClientInfo = Get-WmiObject -Namespace "root\ccm" -Class "ClientInfo"
+				switch ($CMClientInfo.InInternet) {
+					$true {
 						if ($ActiveMPExternalCandidatesCount -ge 1) {
 							$Script:AdminServiceEndpointType = "External"
-						}
+						} 
 						else {
-							Write-CMLogEntry -Value " - Unable to determine AdminService endpoint type, bailing out" -Severity 3
-		
+							Write-CMLogEntry -Value " - Detected as an Internet client but unable to determine External AdminService endpoint, bailing out" -Severity 3
+				
 							# Throw terminating error
 							$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 							$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 						}
 					}
-					default {
-						$Script:AdminServiceEndpointType = "Internal"
+					$false {
+						if ($ActiveMPInternalCandidatesCount -ge 1) {
+							$Script:AdminServiceEndpointType = "Internal"
+						}
+						else {
+							Write-CMLogEntry -Value " - Detected as an Intranet client but unable to determine Internal AdminService endpoint, bailing out" -Severity 3
+				
+							# Throw terminating error
+							$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+							$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+						}
 					}
 				}
 			}
