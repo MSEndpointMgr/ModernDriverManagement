@@ -190,7 +190,8 @@
 						 - Added support for decompressing WIM driver packages.
 	4.0.5 - (2020-09-16) - Fixed an issue for driver package compressed WIM support where it could not mount the file as the location was not empty, thanks to @SuneThomsenDK for reporting this.
 	4.0.6 - (2020-10-11) - Improved the AdminServiceEndpointType detection logic to mainly use the 'InInternet' property from ClientInfo WMI class together with if any detected type of active MP candidate was detected.
-#>
+	4.0.6a- (2020-10-20) - Remove Empty objects from input data in Confirm-SystemSKU
+	#>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
 	[parameter(Mandatory = $true, ParameterSetName = "BareMetal", HelpMessage = "Set the script to operate in 'BareMetal' deployment type mode.")]
@@ -1645,7 +1646,7 @@ Process {
 		}
 	
 		# Remove any space characters from driver package input data, replace them with a comma instead and ensure there's no duplicate entries
-		$DriverPackageInputArray = $DriverPackageInput.Replace(" ", ",").Split($SystemSKUDelimiter) | Select-Object -Unique
+		$DriverPackageInputArray = $DriverPackageInput.Replace(" ", ",").Split($SystemSKUDelimiter) | Where-object { -not [string]::IsNullOrWhiteSpace($_) }| Select-Object -Unique
 	
 		# Construct custom object for return value
 		$SystemSKUDetectionResult = [PSCustomObject]@{
