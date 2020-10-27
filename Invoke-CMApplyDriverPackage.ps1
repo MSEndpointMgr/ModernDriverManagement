@@ -190,6 +190,7 @@
 						 - Added support for decompressing WIM driver packages.
 	4.0.5 - (2020-09-16) - Fixed an issue for driver package compressed WIM support where it could not mount the file as the location was not empty, thanks to @SuneThomsenDK for reporting this.
 	4.0.6 - (2020-10-11) - Improved the AdminServiceEndpointType detection logic to mainly use the 'InInternet' property from ClientInfo WMI class together with if any detected type of active MP candidate was detected.
+	4.0.7 - (2020-10-27) - Updated with support for Windows 10 version 2009.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -247,7 +248,7 @@ param (
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
 	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
-	[ValidateSet("2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
+	[ValidateSet("2009", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
 	[string]$TargetOSVersion,
 
 	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
@@ -939,6 +940,9 @@ Process {
 			[string]$InputObject
 		)
 		switch (([System.Version]$InputObject).Build) {
+			"19042" {
+				$OSVersion = 2009
+			}
 			"19041" {
 				$OSVersion = 2004
 			}
