@@ -107,7 +107,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2020-09-16
+    Updated:     2020-11-26
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -191,6 +191,7 @@
 	4.0.5 - (2020-09-16) - Fixed an issue for driver package compressed WIM support where it could not mount the file as the location was not empty, thanks to @SuneThomsenDK for reporting this.
 	4.0.6 - (2020-10-11) - Improved the AdminServiceEndpointType detection logic to mainly use the 'InInternet' property from ClientInfo WMI class together with if any detected type of active MP candidate was detected.
 	4.0.7 - (2020-10-27) - Updated with support for Windows 10 version 2009.
+	4.0.8 - (2020-11-26) - Fixed an issue with WIM file formatted drivers not extracting correctly
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -1979,6 +1980,8 @@ Process {
 						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
 						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file" -Severity 1
+						Write-CMLogEntry -Value " - Copying items from mount directory" -Severity 1
+						Get-ChildItem -Path	$DriverPackageMountLocation | Copy-Item -destination $ContentLocation -Recurse -container				
 					}
 					catch [System.Exception] {
 						Write-CMLogEntry -Value " - Failed to mount driver package content WIM file. Error message: $($_.Exception.Message)" -Severity 3
