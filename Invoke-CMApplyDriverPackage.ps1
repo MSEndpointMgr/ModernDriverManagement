@@ -192,8 +192,9 @@
 	4.0.6 - (2020-10-11) - Improved the AdminServiceEndpointType detection logic to mainly use the 'InInternet' property from ClientInfo WMI class together with if any detected type of active MP candidate was detected.
 	4.0.7 - (2020-10-27) - Updated with support for Windows 10 version 2009.
 	4.0.8 - (2020-12-09) - Added new functionality to be able to read a custom Application ID URI, if the default of https://ConfigMgrService is not defined on the ServerApp.
+	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
 #>
-[CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
+[CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param (
 	[parameter(Mandatory = $true, ParameterSetName = "BareMetal", HelpMessage = "Set the script to operate in 'BareMetal' deployment type mode.")]
 	[switch]$BareMetal,
