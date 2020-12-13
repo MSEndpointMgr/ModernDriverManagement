@@ -195,7 +195,7 @@
 	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
-param (
+param(
 	[parameter(Mandatory = $true, ParameterSetName = "BareMetal", HelpMessage = "Set the script to operate in 'BareMetal' deployment type mode.")]
 	[switch]$BareMetal,
 	
@@ -317,7 +317,8 @@ Begin {
 	if ($PSCmdLet.ParameterSetName -notlike "Debug") {
 		try {
 			$TSEnvironment = New-Object -ComObject "Microsoft.SMS.TSEnvironment" -ErrorAction Stop
-		} catch [System.Exception] {
+		}
+		catch [System.Exception] {
 			Write-Warning -Message "Unable to construct Microsoft.SMS.TSEnvironment object"; exit
 		}
 	}
@@ -338,7 +339,7 @@ Process {
 	
 	# Functions
 	function Write-CMLogEntry {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Value added to the log file.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$Value,
@@ -360,7 +361,8 @@ Process {
 			[string]$global:TimezoneBias = [System.TimeZoneInfo]::Local.GetUtcOffset((Get-Date)).TotalMinutes
 			if ($TimezoneBias -match "^-") {
 				$TimezoneBias = $TimezoneBias.Replace('-', '+')
-			} else {
+			}
+			else {
 				$TimezoneBias = '-' + $TimezoneBias
 			}
 		}
@@ -378,13 +380,14 @@ Process {
 		# Add value to log file
 		try {
 			Out-File -InputObject $LogText -Append -NoClobber -Encoding Default -FilePath $LogFilePath -ErrorAction Stop
-		} catch [System.Exception] {
+		}
+		catch [System.Exception] {
 			Write-Warning -Message "Unable to append log entry to ApplyDriverPackage.log file. Error message at line $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message)"
 		}
 	}
 	
 	function Invoke-Executable {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the file name or path of the executable to be invoked, including the extension")]
 			[ValidateNotNullOrEmpty()]
 			[string]$FilePath,
@@ -403,7 +406,7 @@ Process {
 		}
 		
 		# Add ArgumentList param if present
-		if (-not ([System.String]::IsNullOrEmpty($Arguments))) {
+		if (-not([System.String]::IsNullOrEmpty($Arguments))) {
 			$SplatArgs.Add("ArgumentList", $Arguments)
 		}
 		
@@ -412,7 +415,8 @@ Process {
 			$Invocation = Start-Process @SplatArgs
 			$Handle = $Invocation.Handle
 			$Invocation.WaitForExit()
-		} catch [System.Exception] {
+		}
+		catch [System.Exception] {
 			Write-Warning -Message $_.Exception.Message; break
 		}
 		
@@ -420,7 +424,7 @@ Process {
 	}
 	
 	function Invoke-CMDownloadContent {
-		param (
+		param(
 			[parameter(Mandatory = $true, ParameterSetName = "NoPath", HelpMessage = "Specify a PackageID that will be downloaded.")]
 			[Parameter(ParameterSetName = "CustomPath")]
 			[ValidateNotNullOrEmpty()]
@@ -468,7 +472,8 @@ Process {
 			if ($TSEnvironment.Value("_SMSTSInWinPE") -eq $false) {
 				Write-CMLogEntry -Value " - Starting package content download process (FullOS), this might take some time" -Severity 1
 				$ReturnCode = Invoke-Executable -FilePath (Join-Path -Path $env:windir -ChildPath "CCM\OSDDownloadContent.exe")
-			} else {
+			}
+			else {
 				Write-CMLogEntry -Value " - Starting package content download process (WinPE), this might take some time" -Severity 1
 				$ReturnCode = Invoke-Executable -FilePath "OSDDownloadContent.exe"
 			}
@@ -479,14 +484,16 @@ Process {
 			# Match on return code
 			if ($ReturnCode -eq 0) {
 				Write-CMLogEntry -Value " - Successfully downloaded package content with PackageID: $($PackageID)" -Severity 1
-			} else {
+			}
+			else {
 				Write-CMLogEntry -Value " - Failed to download package content with PackageID '$($PackageID)'. Return code was: $($ReturnCode)" -Severity 3
 				
 				# Throw terminating error
 				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 			}
-		} catch [System.Exception] {
+		}
+		catch [System.Exception] {
 			Write-CMLogEntry -Value " - An error occurred while attempting to download package content. Error message: $($_.Exception.Message)" -Severity 3
 			
 			# Throw terminating error
@@ -516,7 +523,7 @@ Process {
 	}
 	
 	function New-TerminatingErrorRecord {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the exception message details.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$Message,
@@ -566,7 +573,7 @@ Process {
 	}
 	
 	function ConvertTo-ObfuscatedUserName {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the user name string to be obfuscated for log output.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$InputObject
@@ -606,7 +613,8 @@ Process {
 						$ObfuscatedUserName = ConvertTo-ObfuscatedUserName -InputObject $Script:UserName
 						
 						Write-CMLogEntry -Value " - Successfully read service account user name from TS environment variable 'MDMUserName': $($ObfuscatedUserName)" -Severity 1
-					} else {
+					}
+					else {
 						Write-CMLogEntry -Value " - Required service account user name could not be determined from TS environment variable" -Severity 3
 						
 						# Throw terminating error
@@ -615,7 +623,8 @@ Process {
 					}
 				}
 			}
-		} else {
+		}
+		else {
 			# Obfuscate user name
 			$ObfuscatedUserName = ConvertTo-ObfuscatedUserName -InputObject $Script:UserName
 			
@@ -631,9 +640,10 @@ Process {
 				default {
 					# Attempt to read TSEnvironment variable MDMPassword
 					$Script:Password = $TSEnvironment.Value("MDMPassword")
-					if (-not ([string]::IsNullOrEmpty($Script:Password))) {
+					if (-not([string]::IsNullOrEmpty($Script:Password))) {
 						Write-CMLogEntry -Value " - Successfully read service account password from TS environment variable 'MDMPassword': ********" -Severity 1
-					} else {
+					}
+					else {
 						Write-CMLogEntry -Value " - Required service account password could not be determined from TS environment variable" -Severity 3
 						
 						# Throw terminating error
@@ -642,7 +652,8 @@ Process {
 					}
 				}
 			}
-		} else {
+		}
+		else {
 			Write-CMLogEntry -Value " - Successfully read service account password from parameter input: ********" -Severity 1
 		}
 		
@@ -651,9 +662,10 @@ Process {
 			if ($Script:PSCmdLet.ParameterSetName -notlike "Debug") {
 				# Attempt to read TSEnvironment variable MDMExternalEndpoint
 				$Script:ExternalEndpoint = $TSEnvironment.Value("MDMExternalEndpoint")
-				if (-not ([string]::IsNullOrEmpty($Script:ExternalEndpoint))) {
+				if (-not([string]::IsNullOrEmpty($Script:ExternalEndpoint))) {
 					Write-CMLogEntry -Value " - Successfully read external endpoint address for AdminService through CMG from TS environment variable 'MDMExternalEndpoint': $($Script:ExternalEndpoint)" -Severity 1
-				} else {
+				}
+				else {
 					Write-CMLogEntry -Value " - Required external endpoint address for AdminService through CMG could not be determined from TS environment variable" -Severity 3
 					
 					# Throw terminating error
@@ -663,9 +675,10 @@ Process {
 				
 				# Attempt to read TSEnvironment variable MDMClientID
 				$Script:ClientID = $TSEnvironment.Value("MDMClientID")
-				if (-not ([string]::IsNullOrEmpty($Script:ClientID))) {
+				if (-not([string]::IsNullOrEmpty($Script:ClientID))) {
 					Write-CMLogEntry -Value " - Successfully read client identification for AdminService through CMG from TS environment variable 'MDMClientID': $($Script:ClientID)" -Severity 1
-				} else {
+				}
+				else {
 					Write-CMLogEntry -Value " - Required client identification for AdminService through CMG could not be determined from TS environment variable" -Severity 3
 					
 					# Throw terminating error
@@ -675,9 +688,10 @@ Process {
 				
 				# Attempt to read TSEnvironment variable MDMTenantName
 				$Script:TenantName = $TSEnvironment.Value("MDMTenantName")
-				if (-not ([string]::IsNullOrEmpty($Script:TenantName))) {
+				if (-not([string]::IsNullOrEmpty($Script:TenantName))) {
 					Write-CMLogEntry -Value " - Successfully read client identification for AdminService through CMG from TS environment variable 'MDMTenantName': $($Script:TenantName)" -Severity 1
-				} else {
+				}
+				else {
 					Write-CMLogEntry -Value " - Required client identification for AdminService through CMG could not be determined from TS environment variable" -Severity 3
 					
 					# Throw terminating error
@@ -687,9 +701,10 @@ Process {
 				
 				# Attempt to read TSEnvironment variable MDMApplicationIDURI
 				$Script:ApplicationIDURI = $TSEnvironment.Value("MDMApplicationIDURI")
-				if (-not ([string]::IsNullOrEmpty($Script:ApplicationIDURI))) {
+				if (-not([string]::IsNullOrEmpty($Script:ApplicationIDURI))) {
 					Write-CMLogEntry -Value " - Successfully read Application ID URI from TS environment variable 'MDMApplicationIDURI': $($Script:ApplicationIDURI)" -Severity 1
-				} else {
+				}
+				else {
 					Write-CMLogEntry -Value " - Using standard Application ID URI value: https://ConfigMgrService" -Severity 2
 					$Script:ApplicationIDURI = "https://ConfigMgrService"
 				}
@@ -704,7 +719,8 @@ Process {
 				if ($SMSInWinPE -eq $true) {
 					Write-CMLogEntry -Value " - Detected that script was running within a task sequence in WinPE phase, automatically configuring AdminService endpoint type" -Severity 1
 					$Script:AdminServiceEndpointType = "Internal"
-				} else {
+				}
+				else {
 					Write-CMLogEntry -Value " - Detected that script was not running in WinPE of a bare metal deployment type, this is not a supported scenario" -Severity 3
 					
 					# Throw terminating error
@@ -733,7 +749,8 @@ Process {
 					$true {
 						if ($ActiveMPExternalCandidatesCount -ge 1) {
 							$Script:AdminServiceEndpointType = "External"
-						} else {
+						}
+						else {
 							Write-CMLogEntry -Value " - Detected as an Internet client but unable to determine External AdminService endpoint, bailing out" -Severity 3
 							
 							# Throw terminating error
@@ -744,7 +761,8 @@ Process {
 					$false {
 						if ($ActiveMPInternalCandidatesCount -ge 1) {
 							$Script:AdminServiceEndpointType = "Internal"
-						} else {
+						}
+						else {
 							Write-CMLogEntry -Value " - Detected as an Intranet client but unable to determine Internal AdminService endpoint, bailing out" -Severity 3
 							
 							# Throw terminating error
@@ -783,7 +801,8 @@ Process {
 					$UpdateModuleInvocation = Update-Module -Name "PSIntuneAuth" -Scope CurrentUser -Force -ErrorAction Stop -Confirm:$false -Verbose:$false
 				}
 			}
-		} catch [System.Exception] {
+		}
+		catch [System.Exception] {
 			Write-CMLogEntry -Value " - Unable to detect PSIntuneAuth module, attempting to install from PSGallery" -Severity 2
 			try {
 				# Install NuGet package provider
@@ -792,7 +811,8 @@ Process {
 				# Install PSIntuneAuth module
 				Install-Module -Name "PSIntuneAuth" -Scope AllUsers -Force -ErrorAction Stop -Confirm:$false -Verbose:$false
 				Write-CMLogEntry -Value " - Successfully installed PSIntuneAuth module" -Severity 1
-			} catch [System.Exception] {
+			}
+			catch [System.Exception] {
 				Write-CMLogEntry -Value " - An error occurred while attempting to install PSIntuneAuth module. Error message: $($_.Exception.Message)" -Severity 3
 				
 				# Throw terminating error
@@ -811,7 +831,8 @@ Process {
 			Write-CMLogEntry -Value " - Attempting to retrieve authentication token using native client with ID: $($ClientID)" -Severity 1
 			$Script:AuthToken = Get-MSIntuneAuthToken -TenantName $TenantName -ClientID $ClientID -Credential $Credential -Resource $ApplicationIDURI -RedirectUri "https://login.microsoftonline.com/common/oauth2/nativeclient" -ErrorAction Stop
 			Write-CMLogEntry -Value " - Successfully retrieved authentication token" -Severity 1
-		} catch [System.Exception] {
+		}
+		catch [System.Exception] {
 			Write-CMLogEntry -Value " - Failed to retrieve authentication token. Error message: $($PSItem.Exception.Message)" -Severity 3
 			
 			# Throw terminating error
@@ -827,7 +848,7 @@ Process {
 	}
 	
 	function Get-AdminServiceItem {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the resource for the AdminService API call, e.g. '/SMS_Package'.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$Resource
@@ -841,7 +862,8 @@ Process {
 					$AdminServiceUri = $AdminServiceURL + $Resource
 					Write-CMLogEntry -Value " - Calling AdminService endpoint with URI: $($AdminServiceUri)" -Severity 1
 					$AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Headers $AuthToken -ErrorAction Stop
-				} catch [System.Exception] {
+				}
+				catch [System.Exception] {
 					Write-CMLogEntry -Value " - Failed to retrieve available package items from AdminService endpoint. Error message: $($PSItem.Exception.Message)" -Severity 3
 					
 					# Throw terminating error
@@ -856,7 +878,8 @@ Process {
 				try {
 					# Call AdminService endpoint to retrieve package data
 					$AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Credential $Credential -ErrorAction Stop
-				} catch [System.Security.Authentication.AuthenticationException] {
+				}
+				catch [System.Security.Authentication.AuthenticationException] {
 					Write-CMLogEntry -Value " - The remote AdminService endpoint certificate is invalid according to the validation procedure. Error message: $($PSItem.Exception.Message)" -Severity 2
 					Write-CMLogEntry -Value " - Will attempt to set the current session to ignore self-signed certificates and retry AdminService endpoint connection" -Severity 2
 					
@@ -872,14 +895,16 @@ Process {
 					try {
 						# Call AdminService endpoint to retrieve package data
 						$AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Credential $Credential -ErrorAction Stop
-					} catch [System.Exception] {
+					}
+					catch [System.Exception] {
 						Write-CMLogEntry -Value " - Failed to retrieve available package items from AdminService endpoint. Error message: $($PSItem.Exception.Message)" -Severity 3
 						
 						# Throw terminating error
 						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 					}
-				} catch {
+				}
+				catch {
 					Write-CMLogEntry -Value " - Failed to retrieve available package items from AdminService endpoint. Error message: $($PSItem.Exception.Message)" -Severity 3
 					
 					# Throw terminating error
@@ -928,7 +953,7 @@ Process {
 	}
 	
 	function Get-OSBuild {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "OS version data to be translated.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$InputObject
@@ -976,7 +1001,7 @@ Process {
 	}
 	
 	function Get-OSArchitecture {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "OS architecture data to be translated.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$InputObject
@@ -1017,7 +1042,8 @@ Process {
 						$Packages = (([xml]$(Get-Content -Path $XMLPackageLogicFile -Raw)).ArrayOfCMPackage).CMPackage | Where-Object {
 							$_.Name -notmatch "Pilot" -and $_.Name -notmatch "Legacy" -and $_.Name -match $Filter
 						}
-					} else {
+					}
+					else {
 						Write-CMLogEntry -Value " - Querying AdminService for driver package instances" -Severity 1
 						$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object {
 							$_.Name -notmatch "Pilot" -and $_.Name -notmatch "Retired"
@@ -1031,7 +1057,8 @@ Process {
 						$Packages = (([xml]$(Get-Content -Path $XMLPackageLogicFile -Raw)).ArrayOfCMPackage).CMPackage | Where-Object {
 							$_.Name -match "Pilot" -and $_.Name -match $Filter
 						}
-					} else {
+					}
+					else {
 						Write-CMLogEntry -Value " - Querying AdminService for driver package instances" -Severity 1
 						$Packages = Get-AdminServiceItem -Resource "/SMS_Package?`$filter=contains(Name,'$($Filter)')" | Where-Object {
 							$_.Name -match "Pilot"
@@ -1044,14 +1071,16 @@ Process {
 			if ($Packages -ne $null) {
 				Write-CMLogEntry -Value " - Retrieved a total of '$(($Packages | Measure-Object).Count)' driver packages from $($Script:PackageSource) matching operational mode: $($OperationalMode)" -Severity 1
 				return $Packages
-			} else {
+			}
+			else {
 				Write-CMLogEntry -Value " - Retrieved a total of '0' driver packages from $($Script:PackageSource) matching operational mode: $($OperationalMode)" -Severity 3
 				
 				# Throw terminating error
 				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 			}
-		} catch [System.Exception] {
+		}
+		catch [System.Exception] {
 			Write-CMLogEntry -Value " - An error occurred while calling $($Script:PackageSource) for a list of available driver packages. Error message: $($_.Exception.Message)" -Severity 3
 			
 			# Throw terminating error
@@ -1123,13 +1152,13 @@ Process {
 		
 		# Handle overriding computer details if debug mode and additional parameters was specified
 		if ($Script:PSCmdlet.ParameterSetName -like "Debug") {
-			if (-not ([string]::IsNullOrEmpty($Manufacturer))) {
+			if (-not([string]::IsNullOrEmpty($Manufacturer))) {
 				$ComputerDetails.Manufacturer = $Manufacturer
 			}
-			if (-not ([string]::IsNullOrEmpty($ComputerModel))) {
+			if (-not([string]::IsNullOrEmpty($ComputerModel))) {
 				$ComputerDetails.Model = $ComputerModel
 			}
-			if (-not ([string]::IsNullOrEmpty($SystemSKU))) {
+			if (-not([string]::IsNullOrEmpty($SystemSKU))) {
 				$ComputerDetails.SystemSKU = $SystemSKU
 			}
 		}
@@ -1139,14 +1168,15 @@ Process {
 		Write-CMLogEntry -Value " - Computer model determined as: $($ComputerDetails.Model)" -Severity 1
 		
 		# Handle output to log file for computer SystemSKU
-		if (-not ([string]::IsNullOrEmpty($ComputerDetails.SystemSKU))) {
+		if (-not([string]::IsNullOrEmpty($ComputerDetails.SystemSKU))) {
 			Write-CMLogEntry -Value " - Computer SystemSKU determined as: $($ComputerDetails.SystemSKU)" -Severity 1
-		} else {
+		}
+		else {
 			Write-CMLogEntry -Value " - Computer SystemSKU determined as: <null>" -Severity 2
 		}
 		
 		# Handle output to log file for Fallback SKU
-		if (-not ([string]::IsNullOrEmpty($ComputerDetails.FallBackSKU))) {
+		if (-not([string]::IsNullOrEmpty($ComputerDetails.FallBackSKU))) {
 			Write-CMLogEntry -Value " - Computer Fallback SystemSKU determined as: $($ComputerDetails.FallBackSKU)" -Severity 1
 		}
 		
@@ -1158,10 +1188,12 @@ Process {
 		$ComputerSystemType = Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty "Model"
 		if ($ComputerSystemType -notin @("Virtual Machine", "VMware Virtual Platform", "VirtualBox", "HVM domU", "KVM", "VMWare7,1")) {
 			Write-CMLogEntry -Value " - Supported computer platform detected, script execution allowed to continue" -Severity 1
-		} else {
+		}
+		else {
 			if ($Script:PSCmdlet.ParameterSetName -like "Debug") {
 				Write-CMLogEntry -Value " - Unsupported computer platform detected, virtual machines are not supported but will be allowed in DebugMode" -Severity 2
-			} else {
+			}
+			else {
 				Write-CMLogEntry -Value " - Unsupported computer platform detected, virtual machines are not supported" -Severity 3
 				
 				# Throw terminating error
@@ -1176,7 +1208,8 @@ Process {
 			$OperatingSystemVersion = Get-WmiObject -Class "Win32_OperatingSystem" | Select-Object -ExpandProperty "Version"
 			if ($OperatingSystemVersion -like "10.0.*") {
 				Write-CMLogEntry -Value " - Supported operating system version currently running detected, script execution allowed to continue" -Severity 1
-			} else {
+			}
+			else {
 				Write-CMLogEntry -Value " - Unsupported operating system version detected, this script is only supported on Windows 10 and above" -Severity 3
 				
 				# Throw terminating error
@@ -1187,7 +1220,7 @@ Process {
 	}
 	
 	function Test-ComputerDetails {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the computer details object from Get-ComputerDetails function.")]
 			[ValidateNotNullOrEmpty()]
 			[PSCustomObject]$InputObject
@@ -1214,7 +1247,8 @@ Process {
 			# Throw terminating error
 			$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 			$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-		} else {
+		}
+		else {
 			Write-CMLogEntry -Value " - Computer details successfully verified" -Severity 1
 		}
 	}
@@ -1223,14 +1257,15 @@ Process {
 		if ($ComputerDetection.SystemSKUDetected -eq $true) {
 			Write-CMLogEntry -Value " - Determined primary computer detection method: SystemSKU" -Severity 1
 			return "SystemSKU"
-		} else {
+		}
+		else {
 			Write-CMLogEntry -Value " - Determined fallback computer detection method: ComputerModel" -Severity 1
 			return "ComputerModel"
 		}
 	}
 	
 	function Confirm-DriverPackage {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the computer details object from Get-ComputerDetails function.")]
 			[ValidateNotNullOrEmpty()]
 			[PSCustomObject]$ComputerData,
@@ -1297,7 +1332,8 @@ Process {
 						$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace($DriverPackageItem.Manufacturer, "").Replace(" - ", ":").Split(":").Trim()[1]
 					}
 				}
-			} catch [System.Exception] {
+			}
+			catch [System.Exception] {
 				Write-CMLogEntry -Value "Failed. Error: $($_.Exception.Message)" -Severity 3
 			}
 			
@@ -1320,7 +1356,8 @@ Process {
 			$DetectionCounter = 0
 			if ($DriverPackageDetails.OSVersion -ne $null) {
 				$DetectionMethodsCount = 4
-			} else {
+			}
+			else {
 				$DetectionMethodsCount = 3
 			}
 			Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageDetails.PackageID)]: Processing driver package with $($DetectionMethodsCount) detection methods: $($DriverPackageDetails.PackageName)" -Severity 1
@@ -1329,7 +1366,8 @@ Process {
 				"SystemSKU" {
 					if ([string]::IsNullOrEmpty($DriverPackageDetails.SystemSKU)) {
 						Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageDetails.PackageID)]: Driver package was skipped due to missing SystemSKU values in description field" -Severity 2
-					} else {
+					}
+					else {
 						# Attempt to match against SystemSKU
 						$ComputerDetectionMethodResult = Confirm-SystemSKU -DriverPackageInput $DriverPackageDetails.SystemSKU -ComputerData $ComputerData -ErrorAction Stop
 						
@@ -1364,7 +1402,8 @@ Process {
 							# Handle if OS version should check for fallback versions or match with data from OSImageData variable
 							if ($OSVersionFallback -eq $true) {
 								$OSVersionDetectionResult = Confirm-OSVersion -DriverPackageInput $DriverPackageDetails.OSVersion -OSImageData $OSImageData -OSVersionFallback $true
-							} else {
+							}
+							else {
 								$OSVersionDetectionResult = Confirm-OSVersion -DriverPackageInput $DriverPackageDetails.OSVersion -OSImageData $OSImageData
 							}
 							
@@ -1383,10 +1422,12 @@ Process {
 								
 								# Add custom driver package details object to list of driver packages for post-processing
 								$DriverPackageList.Add($DriverPackageDetails) | Out-Null
-							} else {
+							}
+							else {
 								Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageItem.PackageID)]: Skipping driver package since only $($DetectionCounter)/$($DetectionMethodsCount) checks was matched" -Severity 2
 							}
-						} else {
+						}
+						else {
 							# Match found for all critiera except for OS version, assuming here that the vendor does not provide OS version specific driver packages
 							Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageItem.PackageID)]: Driver package was created on: $($DriverPackageDetails.DateCreated)" -Severity 1
 							Write-CMLogEntry -Value "[DriverPackage:$($DriverPackageItem.PackageID)]: Match found between driver package and computer, adding to list for post-processing of matched driver packages" -Severity 1
@@ -1406,7 +1447,7 @@ Process {
 	}
 	
 	function Confirm-FallbackDriverPackage {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the computer details object from Get-ComputerDetails function.")]
 			[ValidateNotNullOrEmpty()]
 			[PSCustomObject]$ComputerData,
@@ -1487,28 +1528,31 @@ Process {
 							}
 						}
 					}
-				} else {
+				}
+				else {
 					Write-CMLogEntry -Value " - Retrieved a total of '0' fallback driver packages from web service matching operational mode: $($OperationalMode)" -Severity 3
 					
 					# Throw terminating error
 					$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 				}
-			} catch [System.Exception] {
+			}
+			catch [System.Exception] {
 				Write-CMLogEntry -Value " - An error occurred while calling ConfigMgr WebService for a list of available fallback driver packages. Error message: $($_.Exception.Message)" -Severity 3
 				
 				# Throw terminating error
 				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 			}
-		} else {
+		}
+		else {
 			Write-CMLogEntry -Value " - Driver fallback process will not continue since driver packages matching computer model detection logic of '$($ComputerDetectionMethod)' was found" -Severity 1
 			$Script:SkipFallbackDriverPackageValidation = $true
 		}
 	}
 	
 	function Confirm-OSVersion {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the OS version value from the driver package object.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$DriverPackageInput,
@@ -1526,16 +1570,19 @@ Process {
 				# OS version match found where driver package input was less than input from OSImageData version
 				Write-CMLogEntry -Value " - Matched operating system version: $($DriverPackageInput)" -Severity 1
 				return $true
-			} else {
+			}
+			else {
 				# OS version match was not found
 				return $false
 			}
-		} else {
+		}
+		else {
 			if ($DriverPackageInput -like $OSImageData.Version) {
 				# OS version match found
 				Write-CMLogEntry -Value " - Matched operating system version: $($OSImageData.Version)" -Severity 1
 				return $true
-			} else {
+			}
+			else {
 				# OS version match was not found
 				return $false
 			}
@@ -1543,7 +1590,7 @@ Process {
 	}
 	
 	function Confirm-Architecture {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the Architecture value from the driver package object.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$DriverPackageInput,
@@ -1556,14 +1603,15 @@ Process {
 			# OS architecture match found
 			Write-CMLogEntry -Value " - Matched operating system architecture: $($OSImageData.Architecture)" -Severity 1
 			return $true
-		} else {
+		}
+		else {
 			# OS architecture match was not found
 			return $false
 		}
 	}
 	
 	function Confirm-OSName {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the OS name value from the driver package object.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$DriverPackageInput,
@@ -1576,14 +1624,15 @@ Process {
 			# OS name match found
 			Write-CMLogEntry -Value " - Matched operating system name: $($OSImageData.Name)" -Severity 1
 			return $true
-		} else {
+		}
+		else {
 			# OS name match was not found
 			return $false
 		}
 	}
 	
 	function Confirm-ComputerModel {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the computer model value from the driver package object.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$DriverPackageInput,
@@ -1605,7 +1654,8 @@ Process {
 			$ModelDetectionResult.Detected = $true
 			
 			return $ModelDetectionResult
-		} else {
+		}
+		else {
 			# Computer model match was not found
 			# Set properties for custom object for return value
 			$ModelDetectionResult.Detected = $false
@@ -1615,7 +1665,7 @@ Process {
 	}
 	
 	function Confirm-SystemSKU {
-		param (
+		param(
 			[parameter(Mandatory = $true, HelpMessage = "Specify the SystemSKU value from the driver package object.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$DriverPackageInput,
@@ -1656,7 +1706,8 @@ Process {
 					
 					# Set custom object property with SystemSKU value that was matched on the detection result object
 					$SystemSKUDetectionResult.SystemSKUValue = $SystemSKUItem
-				} else {
+				}
+				else {
 					# Add key value pair with match failure
 					$SystemSKUTable.Add($SystemSKUItem, $false)
 				}
@@ -1671,7 +1722,8 @@ Process {
 				$SystemSKUDetectionResult.Detected = $true
 				
 				return $SystemSKUDetectionResult
-			} else {
+			}
+			else {
 				# SystemSKU match was not found based upon multiple items detected in computer data input
 				# Set properties for custom object for return value
 				$SystemSKUDetectionResult.SystemSKUValue = ""
@@ -1679,7 +1731,8 @@ Process {
 				
 				return $SystemSKUDetectionResult
 			}
-		} elseif ($DriverPackageInput -match $ComputerData.SystemSKU) {
+		}
+		elseif ($DriverPackageInput -match $ComputerData.SystemSKU) {
 			# SystemSKU match found based upon single item detected in computer data input
 			Write-CMLogEntry -Value " - Matched SystemSKU: $($ComputerData.SystemSKU)" -Severity 1
 			
@@ -1688,7 +1741,8 @@ Process {
 			$SystemSKUDetectionResult.Detected = $true
 			
 			return $SystemSKUDetectionResult
-		} elseif ((-not ([string]::IsNullOrEmpty($ComputerData.FallbackSKU))) -and ($DriverPackageInput -match $ComputerData.FallbackSKU)) {
+		}
+		elseif ((-not ([string]::IsNullOrEmpty($ComputerData.FallbackSKU))) -and ($DriverPackageInput -match $ComputerData.FallbackSKU)) {
 			# SystemSKU match found using FallbackSKU value using detection method OEMString, this should only be valid for Dell
 			Write-CMLogEntry -Value " - Matched SystemSKU: $($ComputerData.FallbackSKU)" -Severity 1
 			
@@ -1697,7 +1751,8 @@ Process {
 			$SystemSKUDetectionResult.Detected = $true
 			
 			return $SystemSKUDetectionResult
-		} else {
+		}
+		else {
 			# None of the above methods worked to match SystemSKU from driver package input with computer data input
 			# Set properties for custom object for return value
 			$SystemSKUDetectionResult.SystemSKUValue = ""
@@ -1727,10 +1782,12 @@ Process {
 						Write-CMLogEntry -Value " - Selected driver package '$($DriverPackageList[0].PackageID)' with name: $($DriverPackageList[0].PackageName)" -Severity 1
 						Write-CMLogEntry -Value " - Successfully completed validation after fallback process and detected a single driver package, script execution is allowed to continue" -Severity 1
 						Write-CMLogEntry -Value "[DriverPackageFallback]: Completed driver package OS version fallback matching phase" -Severity 1
-					} else {
+					}
+					else {
 						if ($Script:PSBoundParameters["UseDriverFallback"]) {
 							Write-CMLogEntry -Value " - Validation process detected an empty list of matched driver packages, however the UseDriverFallback parameter was specified" -Severity 1
-						} else {
+						}
+						else {
 							Write-CMLogEntry -Value " - Validation after fallback process failed with empty list of matched driver packages, script execution will be terminated" -Severity 3
 							
 							# Throw terminating error
@@ -1738,10 +1795,12 @@ Process {
 							$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 						}
 					}
-				} else {
+				}
+				else {
 					if ($Script:PSBoundParameters["UseDriverFallback"]) {
 						Write-CMLogEntry -Value " - Validation process detected an empty list of matched driver packages, however the UseDriverFallback parameter was specified" -Severity 1
-					} else {
+					}
+					else {
 						Write-CMLogEntry -Value " - Validation failed with empty list of matched driver packages, script execution will be terminated" -Severity 3
 						
 						# Throw terminating error
@@ -1758,9 +1817,7 @@ Process {
 				Write-CMLogEntry -Value " - Amount of driver packages detected by validation process: $($DriverPackageList.Count)" -Severity 1
 				
 				if ($ComputerDetectionMethod -like "SystemSKU") {
-					if (($DriverPackageList | Where-Object {
-								$_.SystemSKU -notlike $DriverPackageList[0].SystemSKU
-							}) -eq $null) {
+					if (($DriverPackageList | Where-Object { $_.SystemSKU -notlike $DriverPackageList[0].SystemSKU }) -eq $null) {
 						Write-CMLogEntry -Value " - NOTICE: Computer detection method is currently '$($ComputerDetectionMethod)', and multiple packages have been matched with the same SystemSKU value" -Severity 1
 						Write-CMLogEntry -Value " - NOTICE: This is a supported scenario where the vendor use the same driver package for multiple models" -Severity 1
 						Write-CMLogEntry -Value " - NOTICE: Validation process will automatically choose the most recently created driver package, even if it means that the computer model names may not match" -Severity 1
@@ -1770,7 +1827,8 @@ Process {
 						
 						Write-CMLogEntry -Value " - Selected driver package '$($DriverPackageList[0].PackageID)' with name: $($DriverPackageList[0].PackageName)" -Severity 1
 						Write-CMLogEntry -Value " - Successfully completed validation with multiple detected driver packages, script execution is allowed to continue" -Severity 1
-					} else {
+					}
+					else {
 						# This should not be possible, but added to handle output to log file for user to reach out to the developers
 						Write-CMLogEntry -Value " - WARNING: Computer detection method is currently '$($ComputerDetectionMethod)', and multiple packages have been matched but with different SystemSKU value" -Severity 2
 						Write-CMLogEntry -Value " - WARNING: This should not be a possible scenario, please reach out to the developers of this script" -Severity 2
@@ -1779,7 +1837,8 @@ Process {
 						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 					}
-				} else {
+				}
+				else {
 					Write-CMLogEntry -Value " - NOTICE: Computer detection method is currently '$($ComputerDetectionMethod)', and multiple packages have been matched with the same Model value" -Severity 1
 					Write-CMLogEntry -Value " - NOTICE: Validation process will automatically choose the most recently created driver package by the DateCreated property" -Severity 1
 					
@@ -1815,7 +1874,8 @@ Process {
 					Write-CMLogEntry -Value " - Selected fallback driver package '$($DriverPackageList[0].PackageID)' with name: $($DriverPackageList[0].PackageName)" -Severity 1
 				}
 			}
-		} else {
+		}
+		else {
 			Write-CMLogEntry -Value " - Fallback driver package validation process is being skipped since 'SkipFallbackDriverPackageValidation' variable was set to True" -Severity 1
 		}
 	}
@@ -1832,7 +1892,8 @@ Process {
 						
 						try {
 							New-Item -Path $PreCachePath -ItemType Directory -Force -ErrorAction Stop | Out-Null
-						} catch [System.Exception] {
+						}
+						catch [System.Exception] {
 							Write-CMLogEntry -Value " - Failed to create PreCachePath directory '$($Script:PreCachePath)'. Error message: $($_.Exception.Message)" -Severity 3
 							
 							# Throw terminating error
@@ -1844,7 +1905,8 @@ Process {
 					if (Test-Path -Path $Script:PreCachePath) {
 						$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "Custom" -DestinationVariableName "OSDDriverPackage" -CustomLocationPath "$($Script:PreCachePath)"
 					}
-				} else {
+				}
+				else {
 					$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "CCMCache" -DestinationVariableName "OSDDriverPackage"
 				}
 			}
@@ -1860,7 +1922,8 @@ Process {
 			
 			# Handle return value for successful download of driver package content files
 			return $DriverPackageContentLocation
-		} else {
+		}
+		else {
 			Write-CMLogEntry -Value " - Driver package content download process returned an unhandled exit code: $($DownloadInvocation)" -Severity 3
 			
 			# Throw terminating error
@@ -1889,7 +1952,8 @@ Process {
 						Write-CMLogEntry -Value " - Decompression destination: $($ContentLocation)" -Severity 1
 						Expand-Archive -Path $DriverPackageCompressedFile.FullName -DestinationPath $ContentLocation -Force -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully decompressed driver package content file" -Severity 1
-					} catch [System.Exception] {
+					}
+					catch [System.Exception] {
 						Write-CMLogEntry -Value " - Failed to decompress driver package content file. Error message: $($_.Exception.Message)" -Severity 3
 						
 						# Throw terminating error
@@ -1902,7 +1966,8 @@ Process {
 						if (Test-Path -Path $DriverPackageCompressedFile.FullName) {
 							Remove-Item -Path $DriverPackageCompressedFile.FullName -Force -ErrorAction Stop
 						}
-					} catch [System.Exception] {
+					}
+					catch [System.Exception] {
 						Write-CMLogEntry -Value " - Failed to remove compressed driver package content file after decompression. Error message: $($_.Exception.Message)" -Severity 3
 						
 						# Throw terminating error
@@ -1918,7 +1983,8 @@ Process {
 					# Validate 7-Zip driver extraction
 					if ($ReturnCode -eq 0) {
 						Write-CMLogEntry -Value " - Successfully decompressed 7-Zip driver package content file" -Severity 1
-					} else {
+					}
+					else {
 						Write-CMLogEntry -Value " - An error occurred while decompressing 7-Zip driver package content file. Return code from self-extracing executable: $($ReturnCode)" -Severity 3
 						
 						# Throw terminating error
@@ -1934,7 +2000,8 @@ Process {
 							Write-CMLogEntry -Value " - Creating mount location directory: $($DriverPackageMountLocation)" -Severity 1
 							New-Item -Path $DriverPackageMountLocation -ItemType "Directory" -Force | Out-Null
 						}
-					} catch [System.Exception] {
+					}
+					catch [System.Exception] {
 						Write-CMLogEntry -Value " - Failed to create mount location for WIM file. Error message: $($_.Exception.Message)" -Severity 3
 						
 						# Throw terminating error
@@ -1950,7 +2017,8 @@ Process {
 						Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file" -Severity 1
 						Write-CMLogEntry -Value " - Copying items from mount directory" -Severity 1
 						Get-ChildItem -Path $DriverPackageMountLocation | Copy-Item -destination $ContentLocation -Recurse -container
-					} catch [System.Exception] {
+					}
+					catch [System.Exception] {
 						Write-CMLogEntry -Value " - Failed to mount driver package content WIM file. Error message: $($_.Exception.Message)" -Severity 3
 						
 						# Throw terminating error
@@ -1983,18 +2051,21 @@ Process {
 									# Validate driver injection
 									if ($ApplyDriverInvocation -eq 0) {
 										Write-CMLogEntry -Value " - Successfully installed driver using dism.exe" -Severity 1
-									} else {
+									}
+									else {
 										Write-CMLogEntry -Value " - An error occurred while installing driver. Continuing with warning code: $($ApplyDriverInvocation). See DISM.log for more details" -Severity 2
 									}
 								}
-							} else {
+							}
+							else {
 								Write-CMLogEntry -Value " - An error occurred while enumerating driver paths, downloaded driver package does not contain any INF files" -Severity 3
 								
 								# Throw terminating error
 								$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
 								$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 							}
-						} catch [System.Exception] {
+						}
+						catch [System.Exception] {
 							Write-CMLogEntry -Value " - An error occurred while installing drivers. See DISM.log for more details" -Severity 2
 							
 							# Throw terminating error
@@ -2011,7 +2082,8 @@ Process {
 						# Validate driver injection
 						if ($ApplyDriverInvocation -eq 0) {
 							Write-CMLogEntry -Value " - Successfully installed drivers recursively in driver package content location using dism.exe" -Severity 1
-						} else {
+						}
+						else {
 							Write-CMLogEntry -Value " - An error occurred while installing drivers. Continuing with warning code: $($ApplyDriverInvocation). See DISM.log for more details" -Severity 2
 						}
 					}
@@ -2048,7 +2120,8 @@ Process {
 						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
 						Dismount-WindowsImage -Path $DriverPackageMountLocation -Discard -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully dismounted driver package content WIM file" -Severity 1
-					} catch [System.Exception] {
+					}
+					catch [System.Exception] {
 						Write-CMLogEntry -Value " - Failed to dismount driver package content WIM file. Error message: $($_.Exception.Message)" -Severity 3
 						
 						# Throw terminating error
@@ -2176,10 +2249,12 @@ Process {
 			Install-DriverPackageContent -ContentLocation $DriverPackageContentLocation
 			
 			Write-CMLogEntry -Value "[DriverPackageInstall]: Completed driver package install phase" -Severity 1
-		} else {
+		}
+		else {
 			Write-CMLogEntry -Value " - Script has successfully completed debug mode" -Severity 1
 		}
-	} catch [System.Exception] {
+	}
+	catch [System.Exception] {
 		Write-CMLogEntry -Value "[ApplyDriverPackage]: Apply Driver Package process failed, please refer to previous error or warning messages" -Severity 3
 		
 		# Main try-catch block was triggered, this should cause the script to fail with exit code 1
