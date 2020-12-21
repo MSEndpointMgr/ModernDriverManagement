@@ -68,11 +68,12 @@ Option to override (default) name of the script output logfile: ApplyDriverPacka
 FileName:	Invoke-MDMPackage.ps1
 CoAuthor:	Chris Kenis
 Contact: 	@KICTS
-Created: 	2020-12-01
+Created: 	2020-12-21
 Contributors:
 Version history:
 4.0.8.1 - (2020-12-08) - Alternative version with some code shuffling and rewrite of functions retaining expected output
 4.0.8.2 - (2020-12-15) - Forked version of Invoke-MDMPackage with major rewrite of code maintaining expected functionality
+4.0.8.3 - (2020-12-21) - minor corrections of mistypings
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
@@ -134,18 +135,23 @@ Process {
 		$script:DriverPackageList = New-Object -TypeName "System.Collections.ArrayList"
 		#Resolve, validate, test and authenticate the Admin webservice
 		$AdminService = Get-AdminService
+		$DPsplat = @{ ComputerData = $ComputerData }
 		switch ($DriverSelection) {
 			"XML" {
 				# Define the path for the pre-downloaded XML Package Logic file
 				$XMLPackageLogicFile = Join-Path -Path $Script:TSEnvironment.Value("MDMXMLPackage01") -ChildPath $XMLFileName
-				if (Test-Path -Path $XMLPackageLogicFile) { $DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -XMLFilePath $XMLPackageLogicFile }
-				else { New-ErrorRecord -Message " - Failed to locate required $($XMLFileName) logic file for XMLPackage deployment type, ensure it has been pre-downloaded in a Download Package Content step before running this script" -ThrowError }
+				$DPsplat.Add("XMLFilePath",$XMLPackageLogicFile)
+				#$DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -XMLFilePath $XMLPackageLogicFile
 			}
 			"AdminService" {
 				# Retrieve available driver packages from web service
-				$DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -FallBack:$UseDriverFallback -AdminService $AdminService -UrlResource "/SMS_Package?`$filter=contains(Name,'$($Filter)')"
+				$DPsplat.Add("FallBack",$UseDriverFallback)
+				$DPsplat.Add("AdminService",$AdminService)
+				$DPsplat.Add("UrlResource",$("/SMS_Package?`$filter=contains(Name,'$($Filter)')"))
+				#$DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -FallBack:$UseDriverFallback -AdminService $AdminService -UrlResource "/SMS_Package?`$filter=contains(Name,'$($Filter)')"
 			}
 		}#switch
+		$DriverPackageList = Get-DriverPackages @DPsplat
 		# At this point, the code below here is not allowed to be executed in debug mode, as it requires access to the Microsoft.SMS.TSEnvironment COM object
 		if (-not $DebugMode.IsPresent) {
 			# Attempt to download the matched driver package content files from distribution point
@@ -163,7 +169,7 @@ Process {
 }#process
 
 Begin {
-	[version]$ScriptVersion = "4.0.8.1"
+	[version]$ScriptVersion = "4.0.8.3"
 	# Set script error preference variable
 	$ErrorActionPreference = "Stop"
 	$LogsDirectory = Join-Path -Path $env:SystemRoot -ChildPath "Temp"
@@ -611,7 +617,8 @@ Begin {
 			switch ($PSCmdLet.ParameterSetName) {
 				"XML" {
 					Write-CMLogEntry -Value " - Reading XML content logic file driver package entries"
-					$Packages = @((([xml]$(Get-Content -Path $XMLFilePath -Raw)).ArrayOfCMPackage).CMPackage) | Where-Object { $_.Name -match $Filter }
+					if (Test-Path -Path $XMLFilePath) { $Packages = @((([xml]$(Get-Content -Path $XMLFilePath -Raw)).ArrayOfCMPackage).CMPackage) | Where-Object { $_.Name -match $Filter }}
+					else { New-ErrorRecord -Message " - Failed to locate required $($XMLFileName) logic file for XMLPackage deployment type, ensure it has been pre-downloaded in a Download Package Content step before running this script" -ThrowError }
 				}
 				"AdminService" {
 					Write-CMLogEntry -Value " - Querying AdminService for driver package instances"
@@ -708,9 +715,9 @@ Begin {
 		Write-CMLogEntry -Value " - Attempting to download content files for matched driver package: $($Package.PackageName)"
 		# Depending on current deployment type, attempt to download driver package content
 		#set default cmdlet params and reset value(s) if needed
-		DestinationLocationType = "Custom"
-		DestinationVariableName = "OSDDriverPackage"
-		CustomLocationPath      = ""
+		$DestinationLocationType = "Custom"
+		$DestinationVariableName = "OSDDriverPackage"
+		$CustomLocationPath      = ""
 		switch ($DeploymentType) {
 			"PreCache" {
 				if ($PSBoundParameters.ContainsKey('PreCachePath')) {
