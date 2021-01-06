@@ -68,12 +68,12 @@ Option to override (default) name of the script output logfile: ApplyDriverPacka
 FileName:	Invoke-MDMPackage.ps1
 CoAuthor:	Chris Kenis
 Contact: 	@KICTS
-Created: 	2020-12-21
+Created: 	2020-12-01
 Contributors:
 Version history:
 4.0.8.1 - (2020-12-08) - Alternative version with some code shuffling and rewrite of functions retaining expected output
-4.0.8.2 - (2020-12-15) - Forked version of Invoke-MDMPackage with major rewrite of code maintaining expected functionality
-4.0.8.3 - (2020-12-21) - minor corrections of mistypings
+4.0.8.2 - (2020-12-15) - Forked version of Invoke-CMApplyDriverPackage with major rewrite of code maintaining expected functionality
+4.0.9.1 - (2021-01-05) - Use of Dynamic Param for validating and providing default values for OSVersion + minor code update and replace of Get-WMIObject with Get-CIMInstance in Get-ComputerData function
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
@@ -86,9 +86,6 @@ param (
 	[string]$UserName,
 	[parameter(ParameterSetName = "Debug", HelpMessage = "Specify the service account password used for authenticating against the AdminService endpoint.")]
 	[string]$Password,
-	[parameter(HelpMessage = "Override the automatically detected (shorthand) OS version, e.g. 2004")]
-	[ValidateScript( { $OsBuildVersions.ContainsValue($_) })]
-	[string]$OSVersion,
 	[parameter(HelpMessage = "Use this switch to check for driver packages that match a previous version of Windows.")]
 	[switch]$OSVersionFallback,
 	[parameter(HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
@@ -124,6 +121,33 @@ param (
 	[string]$LogFileName = "ApplyDriverPackage.log"
 )
 
+DynamicParam {
+	#using a dynamic param for validation of script parameter(s) and script variable(s) with just one hashtable to define
+	[System.Collections.Hashtable]$script:OsBuildVersions = @{
+		"19042" = '2009'
+		"19041" = '2004'
+		"18363" = '1909'
+		"18362" = '1903'
+		"17763" = '1809'
+		"17134" = '1803'
+		"16299" = '1709'
+		"15063" = '1703'
+		"14393" = '1607'
+	}
+	$parameterName = 'OSVersion'
+	$parameterAttribute = New-Object System.Management.Automation.ParameterAttribute
+	$ParameterAttribute.HelpMessage = "Override the automatically detected (shorthand) OS version, e.g. 2004"
+	$attributeCollection = New-Object System.Collections.ObjectModel.Collection[System.Attribute]
+	$attributeCollection.Add($parameterAttribute)
+	$arrSet = $script:OsBuildVersions.Values
+	$ValidateSetAttribute = New-Object System.Management.Automation.ValidateSetAttribute($arrSet)
+	$attributeCollection.Add($ValidateSetAttribute)
+	$RuntimeParameter = New-Object System.Management.Automation.RuntimeDefinedParameter($parameterName, [string], $AttributeCollection)
+	$runtimeParameterDictionary = New-Object System.Management.Automation.RuntimeDefinedParameterDictionary
+	$runtimeParameterDictionary.Add($parameterName, $RuntimeParameter)
+	return $runtimeParameterDictionary
+}
+
 Process {
 	Write-CMLogEntry -Value "[ApplyDriverPackage]: Apply Driver Package script version $($ScriptVersion) initiated in $($DeploymentType) deployment mode"
 	Write-CMLogEntry -Value " - Apply driver package in $($OperationalMode) mode"
@@ -132,26 +156,21 @@ Process {
 		$ComputerData = Get-ComputerData
 		Write-CMLogEntry -Value "[DriverPackage]: Starting driver package retrieval using $($DriverSelection) as query source."
 		# Construct array list for matched drivers packages
-		$script:DriverPackageList = New-Object -TypeName "System.Collections.ArrayList"
+		$DriverPackageList = New-Object -TypeName "System.Collections.ArrayList"
 		#Resolve, validate, test and authenticate the Admin webservice
 		$AdminService = Get-AdminService
-		$DPsplat = @{ ComputerData = $ComputerData }
 		switch ($DriverSelection) {
 			"XML" {
 				# Define the path for the pre-downloaded XML Package Logic file
 				$XMLPackageLogicFile = Join-Path -Path $Script:TSEnvironment.Value("MDMXMLPackage01") -ChildPath $XMLFileName
-				$DPsplat.Add("XMLFilePath",$XMLPackageLogicFile)
-				#$DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -XMLFilePath $XMLPackageLogicFile
+				if (Test-Path -Path $XMLPackageLogicFile) { $DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -XMLFilePath $XMLPackageLogicFile }
+				else { New-ErrorRecord -Message " - Failed to locate required $($XMLFileName) logic file for XMLPackage deployment type, ensure it has been pre-downloaded in a Download Package Content step before running this script" -ThrowError }
 			}
 			"AdminService" {
 				# Retrieve available driver packages from web service
-				$DPsplat.Add("FallBack",$UseDriverFallback)
-				$DPsplat.Add("AdminService",$AdminService)
-				$DPsplat.Add("UrlResource",$("/SMS_Package?`$filter=contains(Name,'$($Filter)')"))
-				#$DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -FallBack:$UseDriverFallback -AdminService $AdminService -UrlResource "/SMS_Package?`$filter=contains(Name,'$($Filter)')"
+				$DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -FallBack:$UseDriverFallback -AdminService $AdminService -UrlResource "/SMS_Package?`$filter=contains(Name,'$($Filter)')"
 			}
 		}#switch
-		$DriverPackageList = Get-DriverPackages @DPsplat
 		# At this point, the code below here is not allowed to be executed in debug mode, as it requires access to the Microsoft.SMS.TSEnvironment COM object
 		if (-not $DebugMode.IsPresent) {
 			# Attempt to download the matched driver package content files from distribution point
@@ -169,7 +188,7 @@ Process {
 }#process
 
 Begin {
-	[version]$ScriptVersion = "4.0.8.3"
+	[version]$ScriptVersion = "4.0.9.1"
 	# Set script error preference variable
 	$ErrorActionPreference = "Stop"
 	$LogsDirectory = Join-Path -Path $env:SystemRoot -ChildPath "Temp"
@@ -182,17 +201,6 @@ Begin {
 	catch [System.Exception] { Write-Warning -Message "Script is not running in a Task Sequence" }
 	$LogFilePath = Join-Path -Path $LogsDirectory -ChildPath $LogFileName
 	[System.Collections.ArrayList]$script:LogEntries = @()
-	[System.Collections.Hashtable]$script:OsBuildVersions = @{
-		"19042" = '2009'
-		"19041" = '2004'
-		"18363" = '1909'
-		"18362" = '1903'
-		"17763" = '1809'
-		"17134" = '1803'
-		"16299" = '1709'
-		"15063" = '1703'
-		"14393" = '1607'
-	}
 
 	# Functions
 	function Write-CMLogEntry {
@@ -383,7 +391,10 @@ Begin {
 		}#switch
 		switch ($AdminServiceEndpointType) {
 			"Internal" {
-				#if (-not $PSBoundParameters.Contains("Endpoint")){ $Endpoint = (Get-WmiObject -Namespace "root\SMS" -Class SMS_ProviderLocation).Machine }
+				if (-not $PSBoundParameters.Contains("Endpoint")) { 
+					#$Endpoint = (Get-WmiObject -Namespace "root\SMS" -Class SMS_ProviderLocation).Machine
+					$Endpoint = $ActiveMPCandidates | Where-Object Locality -gt 0 | Select-Object -First 1 -ExpandProperty MP
+				}
 				$AdminServiceURL = "https://{0}/AdminService/wmi" -f $Endpoint
 			}
 			"External" { $AdminServiceURL = "{0}/wmi" -f $ExternalEndpoint }
@@ -494,17 +505,24 @@ Begin {
 	function Get-ComputerData {
 		Write-CMLogEntry -Value "[PrerequisiteChecker]: Starting environment prerequisite checker"
 		# Gather computer details based upon specific computer Manufacturer
-		$NameSpace = "root\wmi"
 		$ModelClass = "Win32_ComputerSystem"
 		$ModelProp = "Model"
 		$SkuClass = "MS_SystemInformation"
 		$SkuProp = "BaseBoardProduct"
 		$FallbackSKU = "None"
-		if (-not ($PSBoundParameters.ContainsKey('Manufacturer'))) {
-			$Manufacturer = (Get-WmiObject -Namespace $NameSpace -Class $ModelClass | Select-Object -ExpandProperty Manufacturer).Trim()
+		if (-not ($PSBoundParameters.ContainsKey('Manufacturer'))) { 
+			$ComputerSystem = Get-CimInstance -Class $ModelClass
+			$Manufacturer = $ComputerSystem.Manufacturer
 		}
+		else { $Manufacturer = $PSBoundParameters['Manufacturer'] }
 		switch -Wildcard ($Manufacturer) {
 			"*Microsoft*" {
+				if ($ComputerSystem.Model -match "virtual") {
+					# this is a HyperV machine
+					$ModelClass = "Win32_ComputerSystemProduct"
+					$ModelProp = "Version"
+					$PSBoundParameters.Add("SystemSKU", "VM")
+				}
 				$Manufacturer = "Microsoft"
 				$SkuProp = "SystemSKU"
 			}
@@ -517,7 +535,7 @@ Begin {
 			"*Dell*" {
 				$Manufacturer = "Dell"
 				$SkuProp = "SystemSKU"
-				[string]$OEMString = Get-WmiObject -Namespace $NameSpace -Class $ModelClass | Select-Object -ExpandProperty OEMStringArray
+				[string]$OEMString = Get-CimInstance -Class $ModelClass | Select-Object -ExpandProperty OEMStringArray
 				$FallbackSKU = [regex]::Matches($OEMString, '\[\S*]')[0].Value.TrimStart("[").TrimEnd("]")
 			}
 			"*Lenovo*" {
@@ -543,25 +561,43 @@ Begin {
 				$SkuClass = "Win32_BaseBoard"
 				$SkuProp = "SKU"
 			}
-			"VMWare" {}
-			"VirtualBox" {}
-			"HyperV" {}
+			"VMWare" {
+				$Manufacturer = "VMWare, Inc."
+				$ModelClass = "Win32_ComputerSystemProduct"
+				$ModelProp = "Version"
+				$PSBoundParameters.Add("SystemSKU", "VM")
+			}
+			"VirtualBox" {
+				$Manufacturer = "Oracle"
+				$ModelClass = "Win32_ComputerSystemProduct"
+				$ModelProp = "Version"
+				$PSBoundParameters.Add("SystemSKU", "VM")
+			}
+			"HyperV" {
+				$Manufacturer = "Microsoft"
+				$ModelClass = "Win32_ComputerSystemProduct"
+				$ModelProp = "Version"
+				$PSBoundParameters.Add("SystemSKU", "VM")
+			}
 			default { if (-not $DebugMode.IsPresent) { New-ErrorRecord -Message ([string]::Empty) -ThrowError } }
 		}
 		#if not explicitly defined via param then set computer data value(s)
 		if (-not ($PSBoundParameters.ContainsKey('ComputerModel'))) {
-			$ComputerModel = (Get-CimInstance -Namespace $NameSpace -ClassName $ModelClass | Select-Object -ExpandProperty $ModelProp).Trim()
+			$ComputerModel = (Get-CimInstance -ClassName $ModelClass | Select-Object -ExpandProperty $ModelProp)
 		}
+		else { $ComputerModel = $PSBoundParameters['ComputerModel'] }
 		if (-not ($PSBoundParameters.ContainsKey('SystemSKU'))) {
-			$SystemSKU = (Get-CimInstance -Namespace $NameSpace -ClassName $SkuClass | Select-Object -ExpandProperty $SkuProp).Trim()
+			$SystemSKU = (Get-CimInstance -ClassName $SkuClass | Select-Object -ExpandProperty $SkuProp)
 			if ($Manufacturer -eq "Lenovo") { $SystemSKU = $SystemSKU.Substring(0, 4) }
 		}
+		else { $SystemSKU = $PSBoundParameters['SystemSku'] }
 		if (-not ($PSBoundParameters.ContainsKey('OSVersion'))) {
-			[System.Version]$OSBuild = (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty Version)
+			[System.Version]$OSBuild = (Get-CimInstance -Class Win32_OperatingSystem | Select-Object -ExpandProperty Version)
 			$OSVersion = $script:OsBuildVersions[$($OSBuild.Build).ToString()]
 		}
+		else { $OSVersion = $PSBoundParameters['OSVersion'] }
 		if (-not ($PSBoundParameters.ContainsKey('OSArchitecture'))) {
-			$Architecture = (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty OSArchitecture)
+			$Architecture = (Get-CimInstance -Class Win32_OperatingSystem | Select-Object -ExpandProperty OSArchitecture)
 			$OSArchitecture = switch -Wildcard ($Architecture) {
 				"9" { "x64" }
 				"0" { "x86" }
@@ -573,10 +609,12 @@ Begin {
 				}
 			}
 		}
+		else { $OSArchitecture = $PSBoundParameters['OSArchitecture'] }
 		if (-not ($PSBoundParameters.ContainsKey('OSVersionFallback')) -and $UseDriverFallback.IsPresent) {
 			#filter hashtable where buildnumbers are less than OSversion and select value from last entry to return the latest previous buildnumber
 			$OSVersionFallback = $script:OsBuildVersions.GetEnumerator() | Sort-Object Name | Where-Object { $_.Value -lt $OSVersion } | Select-Object -Last 1 -ExpandProperty Value
 		}
+		else { $OSVersionFallback = $PSBoundParameters['OSVersionFallback'] }
 		# Handle output to log file for computer details
 		Write-CMLogEntry -Value " - Computer manufacturer determined as: $($Manufacturer)"
 		Write-CMLogEntry -Value " - Computer model determined as: $($ComputerModel)"
@@ -617,8 +655,7 @@ Begin {
 			switch ($PSCmdLet.ParameterSetName) {
 				"XML" {
 					Write-CMLogEntry -Value " - Reading XML content logic file driver package entries"
-					if (Test-Path -Path $XMLFilePath) { $Packages = @((([xml]$(Get-Content -Path $XMLFilePath -Raw)).ArrayOfCMPackage).CMPackage) | Where-Object { $_.Name -match $Filter }}
-					else { New-ErrorRecord -Message " - Failed to locate required $($XMLFileName) logic file for XMLPackage deployment type, ensure it has been pre-downloaded in a Download Package Content step before running this script" -ThrowError }
+					$Packages = @((([xml]$(Get-Content -Path $XMLFilePath -Raw)).ArrayOfCMPackage).CMPackage) | Where-Object { $_.Name -match $Filter }
 				}
 				"AdminService" {
 					Write-CMLogEntry -Value " - Querying AdminService for driver package instances"
@@ -715,9 +752,9 @@ Begin {
 		Write-CMLogEntry -Value " - Attempting to download content files for matched driver package: $($Package.PackageName)"
 		# Depending on current deployment type, attempt to download driver package content
 		#set default cmdlet params and reset value(s) if needed
-		$DestinationLocationType = "Custom"
-		$DestinationVariableName = "OSDDriverPackage"
-		$CustomLocationPath      = ""
+		DestinationLocationType = "Custom"
+		DestinationVariableName = "OSDDriverPackage"
+		CustomLocationPath      = ""
 		switch ($DeploymentType) {
 			"PreCache" {
 				if ($PSBoundParameters.ContainsKey('PreCachePath')) {
