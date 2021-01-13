@@ -74,6 +74,7 @@ Version history:
 4.0.8.1 - (2020-12-08) - Alternative version with some code shuffling and rewrite of functions retaining expected output
 4.0.8.2 - (2020-12-15) - Forked version of Invoke-CMApplyDriverPackage with major rewrite of code maintaining expected functionality
 4.0.9.1 - (2021-01-05) - Use of Dynamic Param for validating and providing default values for OSVersion + minor code update and replace of Get-WMIObject with Get-CIMInstance in Get-ComputerData function
+4.0.9.2 - (2021-01-13) - Merged AdminService endpoint code into 1 function, minor corrections in Get-ComputerData 
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
@@ -122,7 +123,7 @@ param (
 )
 
 DynamicParam {
-	#using a dynamic param for validation of script parameter(s) and script variable(s) with just one hashtable to define
+	# using a dynamic param for validation of script parameter(s) and script variable(s) with just one hashtable to define
 	[System.Collections.Hashtable]$script:OsBuildVersions = @{
 		"19042" = '2009'
 		"19041" = '2004'
@@ -154,11 +155,11 @@ Process {
 	try {
 		# Determine computer OS version, Architecture, Manufacturer, Model, SystemSKU and FallbackSKU
 		$ComputerData = Get-ComputerData
-		Write-CMLogEntry -Value "[DriverPackage]: Starting driver package retrieval using $($DriverSelection) as query source."
-		# Construct array list for matched drivers packages
-		$DriverPackageList = New-Object -TypeName "System.Collections.ArrayList"
 		#Resolve, validate, test and authenticate the Admin webservice
 		$AdminService = Get-AdminService
+		# Construct array list for matched drivers packages
+		$DriverPackageList = New-Object -TypeName "System.Collections.ArrayList"
+		Write-CMLogEntry -Value "[DriverPackage]: Starting driver package retrieval using $($DriverSelection) as query source."
 		switch ($DriverSelection) {
 			"XML" {
 				# Define the path for the pre-downloaded XML Package Logic file
@@ -188,15 +189,13 @@ Process {
 }#process
 
 Begin {
-	[version]$ScriptVersion = "4.0.9.1"
+	[version]$ScriptVersion = "4.0.9.2"
 	# Set script error preference variable
 	$ErrorActionPreference = "Stop"
 	$LogsDirectory = Join-Path -Path $env:SystemRoot -ChildPath "Temp"
-	[bool]$script:RunInTS = $false
 	try {
 		$Script:TSEnvironment = New-Object -ComObject "Microsoft.SMS.TSEnvironment" -ErrorAction Stop
 		$LogsDirectory = $Script:TSEnvironment.Value("_SMSTSLogPath")
-		$script:RunInTS = $true
 	}
 	catch [System.Exception] { Write-Warning -Message "Script is not running in a Task Sequence" }
 	$LogFilePath = Join-Path -Path $LogsDirectory -ChildPath $LogFileName
@@ -328,18 +327,6 @@ Begin {
 				New-ErrorRecord -Message " - Required service account password could not be determined from TS environment variable" -ThrowError
 			}
 		}
-		# Construct PSCredential object for AdminService authentication, this is required for both endpoint types
-		$Credential = Get-AuthCredential -UserName $UserName -Password $Password
-		$AdminServiceEndpoint = Get-AdminServiceEndpoint
-		# Attempt to retrieve an authentication token for external AdminService endpoint connectivity
-		# This will only execute when the endpoint type has been detected as External, which means that authentication is needed against the Cloud Management Gateway
-		if ($AdminServiceEndpoint.Type -like "External") {
-			Get-AuthToken -TenantName $AdminServiceEndpoint.TenantName -ClientID $AdminServiceEndpoint.ClientID -Credential $Credential
-		}
-		Write-CMLogEntry -Value "[AdminService]: Completed AdminService endpoint phase"
-		return $AdminServiceEndpoint
-	}
-	function Get-AdminServiceEndpoint {
 		$AdminServiceEndpointType = "Internal"
 		switch ($DeploymentType) {
 			"BareMetal" {
@@ -389,15 +376,20 @@ Begin {
 				}#switch
 			}
 		}#switch
+		# Construct PSCredential object for AdminService authentication, this is required for both endpoint types
+		$Credential = Get-AuthCredential -UserName $UserName -Password $Password
 		switch ($AdminServiceEndpointType) {
 			"Internal" {
-				if (-not $PSBoundParameters.Contains("Endpoint")) { 
-					#$Endpoint = (Get-WmiObject -Namespace "root\SMS" -Class SMS_ProviderLocation).Machine
+				if (-not $PSBoundParameters.Contains("Endpoint")) {
 					$Endpoint = $ActiveMPCandidates | Where-Object Locality -gt 0 | Select-Object -First 1 -ExpandProperty MP
 				}
 				$AdminServiceURL = "https://{0}/AdminService/wmi" -f $Endpoint
 			}
-			"External" { $AdminServiceURL = "{0}/wmi" -f $ExternalEndpoint }
+			"External" { 
+				$AdminServiceURL = "{0}/wmi" -f $ExternalEndpoint
+				# Get authentication token needed against the Cloud Management Gateway
+				$AuthToken = Get-AuthToken -TenantName $TenantName -ClientID $ClientID -Credential $Credential
+			}
 		}
 		Write-CMLogEntry -Value " - AdminService endpoint type is: $($AdminServiceEndpointType) and can be reached via URL: $($AdminServiceURL)"
 		$AdminServiceEndpoint = [PSCustomObject]@{
@@ -405,7 +397,10 @@ Begin {
 			Type       = $AdminServiceEndpointType
 			ClientID   = $ClientID
 			TenantName = $TenantName
+			AuthToken  = $AuthToken
+			Credential = $Credential
 		}
+		Write-CMLogEntry -Value "[AdminService]: Completed AdminService endpoint phase"
 		return $AdminServiceEndpoint
 	}
 	function Install-AuthModule {
@@ -471,11 +466,11 @@ Begin {
 		Write-CMLogEntry -Value " - Calling AdminService endpoint with URI: $($AdminServiceUri)"
 		switch ($AdminServiceEndpoint.Type) {
 			"External" {
-				try { $AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Headers $AuthToken -ErrorAction Stop }
+				try { $AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Headers $AdminServiceEndpoint.AuthToken -ErrorAction Stop }
 				catch [System.Exception] { New-ErrorRecord -Message " - Failed to retrieve available package items from AdminService endpoint. Error message: $($PSItem.Exception.Message)" -ThrowError }
 			}
 			"Internal" {
-				try { $AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Credential $Credential -ErrorAction Stop	}
+				try { $AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Credential $AdminServiceEndpoint.Credential -ErrorAction Stop	}
 				catch [System.Security.Authentication.AuthenticationException] {
 					Write-CMLogEntry -Value " - The remote AdminService endpoint certificate is invalid according to the validation procedure. Error message: $($PSItem.Exception.Message)" -Severity 2
 					Write-CMLogEntry -Value " - Will attempt to set the current session to ignore self-signed certificates and retry AdminService endpoint connection" -Severity 2
@@ -487,7 +482,7 @@ Begin {
 					[ServerCertificateValidationCallback]::Ignore()
 					try {
 						# Call AdminService endpoint to retrieve package data
-						$AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Credential $Credential -ErrorAction Stop
+						$AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Credential $AdminServiceEndpoint.Credential -ErrorAction Stop
 					}
 					catch [System.Exception] { New-ErrorRecord -Message " - Failed to retrieve available package items from AdminService endpoint. Error message: $($PSItem.Exception.Message)" -ThrowError }
 				}
@@ -711,7 +706,7 @@ Begin {
 				"^.*Windows.*(?<OSVersion>(\d){4}).*" { $OSVersion = $Matches.OSVersion }
 			}
 			#retrieve SystemSKU from non-empty description field of driver package
-			try { [string]$DriverPackage.Description.Split(":").Replace("(", "").Replace(")", "")[1] }
+			try { $SystemSKU = [string]$DriverPackage.Description.Split(":").Replace("(", "").Replace(")", "")[1] }
 			catch { $SystemSKU = "" }
 			#using logical operators for validation of driver package compliancy with computer data fields
 			$OSNameMatch = ($OSName -eq $ComputerData.OSName)
@@ -720,8 +715,8 @@ Begin {
 			$OSArchitectureMatch = ($Architecture -eq $ComputerData.Architecture)
 			$ManufacturerMatch = ($DriverPackage.Manufacturer -like $ComputerData.Manufacturer)
 			$ComputerModelMatch = ($Model -like $ComputerData.Model)
-			$SystemSKUMatch = ($SystemSKU -like $ComputerData.SystemSKU)
-			if (-not $SystemSKUMatch) { $SystemSKUMatch = ($SystemSKU -like $ComputerData.FallbackSKU) }
+			$SystemSKUMatch = ($SystemSKU -match $ComputerData.SystemSKU)
+			if (-not $SystemSKUMatch) { $SystemSKUMatch = ($SystemSKU -match $ComputerData.FallbackSKU) }
 			# Construct custom object to hold values for current driver package properties used for matching with current computer details
 			$DriverPackageDetails = [PSCustomObject]@{
 				PackageName    = $DriverPackage.Name
@@ -752,9 +747,9 @@ Begin {
 		Write-CMLogEntry -Value " - Attempting to download content files for matched driver package: $($Package.PackageName)"
 		# Depending on current deployment type, attempt to download driver package content
 		#set default cmdlet params and reset value(s) if needed
-		DestinationLocationType = "Custom"
-		DestinationVariableName = "OSDDriverPackage"
-		CustomLocationPath      = ""
+		$DestinationLocationType = "Custom"
+		$DestinationVariableName = "OSDDriverPackage"
+		$CustomLocationPath = ""
 		switch ($DeploymentType) {
 			"PreCache" {
 				if ($PSBoundParameters.ContainsKey('PreCachePath')) {
@@ -796,7 +791,7 @@ Begin {
 			# Reset SMSTSDownloadRetryCount to 5 after attempted download
 			Set-MDMTaskSequenceVariable -TSVariable "SMSTSDownloadRetryCount" -TsValue 5
 			# Match on return code
-			if ($ReturnCode -ne 0) { New-ErrorRecord -Message " - Failed to download package content with PackageID '$($PackageID)'. Return code was: $($ReturnCode)" -ThrowError }
+			if ($ReturnCode -ne 0) { New-ErrorRecord -Message " - Failed to download package content with PackageID '$($Package.ID)'. Return code was: $($ReturnCode)" -ThrowError }
 		}
 		catch [System.Exception] { New-ErrorRecord -Message " - An error occurred while attempting to download package content. Error message: $($_.Exception.Message)" -ThrowError }
 		if ($ReturnCode -eq 0) {
