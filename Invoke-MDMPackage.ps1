@@ -13,10 +13,10 @@ Specify the fully qualified domain name of the server hosting the AdminService, 
 Specify the service account user name used for authenticating against the AdminService endpoint.
 .PARAMETER Password
 Specify the service account password used for authenticating against the AdminService endpoint.
-.PARAMETER TargetOSVersion
+.PARAMETER OSVersion
 Define the value that will be used as the target operating system version e.g. '2004'.
 .PARAMETER OSVersionFallback
-Use this switch to check for drivers packages that matches earlier versions of Windows than what's specified as input for TargetOSVersion.
+Use this switch to check for drivers packages that matches earlier versions of Windows than what's specified as input for OSVersion.
 .PARAMETER OSArchitecture
 Define the value that will be used as the target operating system architecture e.g. 'x64'.
 .PARAMETER Manufacturer
@@ -42,28 +42,28 @@ Set the script to operate in 'DebugMode', hence no actual installation of driver
 .PARAMETER XMLFileName
 Option to override (default) name of the XML selection file: DriverPackages.xml
 .PARAMETER LogFileName
-Option to override (default) name of the script output logfile: ApplyDriverPackage.log
+Option to override (default) name of the script output logfile: InvokeMDMPackage.log
 .EXAMPLE
 # Detect, download and apply drivers during OS deployment with ConfigMgr:
-.\Invoke-MDMPackage.ps1 -Endpoint "CM01.domain.com" -TargetOSVersion 1909
+.\Invoke-MDMPackage.ps1 -Endpoint "CM01.domain.com" -OSVersion 1909
 # Detect, download and apply drivers during OS deployment with ConfigMgr and use a driver fallback package if no matching driver package can be found:
-.\Invoke-MDMPackage.ps1 -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -UseDriverFallback
-# Detect, download and apply drivers during OS deployment with ConfigMgr and check for driver packages that matches an earlier version than what's specified for TargetOSVersion:
-.\Invoke-MDMPackage.ps1 -DeploymentType BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -OSVersionFallback
+.\Invoke-MDMPackage.ps1 -Endpoint "CM01.domain.com" -OSVersion 1909 -UseDriverFallback
+# Detect, download and apply drivers during OS deployment with ConfigMgr and check for driver packages that matches an earlier version than what's specified for OSVersion:
+.\Invoke-MDMPackage.ps1 -DeploymentType BareMetal -Endpoint "CM01.domain.com" -OSVersion 1909 -OSVersionFallback
 # Detect and download drivers during OS upgrade with ConfigMgr:
-.\Invoke-MDMPackage.ps1 -DeploymentType OSUpgrade -Endpoint "CM01.domain.com" -TargetOSVersion 1909
+.\Invoke-MDMPackage.ps1 -DeploymentType OSUpgrade -Endpoint "CM01.domain.com" -OSVersion 1909
 # Detect, download and update a device with latest drivers for an running operating system using ConfigMgr:
 .\Invoke-MDMPackage.ps1 -DeploymentType DriverUpdate -Endpoint "CM01.domain.com"
 # Detect and download (pre-caching content) during OS upgrade with ConfigMgr:
-.\Invoke-MDMPackage.ps1 -DeploymentType PreCache -Endpoint "CM01.domain.com" -TargetOSVersion 1909
+.\Invoke-MDMPackage.ps1 -DeploymentType PreCache -Endpoint "CM01.domain.com" -OSVersion 1909
 # Detect and download (pre-caching content) to a custom path during OS upgrade with ConfigMgr:
-.\Invoke-MDMPackage.ps1 -DeploymentType PreCache -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -PreCachePath "$($env:SystemDrive)\MDMDrivers"
+.\Invoke-MDMPackage.ps1 -DeploymentType PreCache -Endpoint "CM01.domain.com" -OSVersion 1909 -PreCachePath "$($env:SystemDrive)\MDMDrivers"
 # Run in a debug mode for testing purposes on the targeted computer model:
-.\Invoke-MDMPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -TargetOSVersion 2004
+.\Invoke-MDMPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -OSVersion 2004
 # Run in a debug mode for testing purposes and overriding the (automatically detected) computer specifications:
-.\Invoke-MDMPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -TargetOSVersion 1909 -Manufacturer "Lenovo" -ComputerModel "Thinkpad X1 Tablet" -SystemSKU "20KKS7"
+.\Invoke-MDMPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -OSVersion 1909 -Manufacturer "Lenovo" -ComputerModel "Thinkpad X1 Tablet" -SystemSKU "20KKS7"
 # Detect, download and apply drivers during OS deployment with ConfigMgr and use an XML table as the source of driver package details instead of the AdminService:
-.\Invoke-MDMPackage.ps1 -TargetOSVersion "1909" -OSVersionFallback "1903" -DriverSelection XML -XMLFileName "Install32bitDrivers.xml"
+.\Invoke-MDMPackage.ps1 -OSVersion "1909" -OSVersionFallback "1903" -DriverSelection XML -XMLFileName "Install32bitDrivers.xml"
 .NOTES
 FileName:	Invoke-MDMPackage.ps1
 CoAuthor:	Chris Kenis
@@ -74,7 +74,8 @@ Version history:
 4.0.8.1 - (2020-12-08) - Alternative version with some code shuffling and rewrite of functions retaining expected output
 4.0.8.2 - (2020-12-15) - Forked version of Invoke-CMApplyDriverPackage with major rewrite of code maintaining expected functionality
 4.0.9.1 - (2021-01-05) - Use of Dynamic Param for validating and providing default values for OSVersion + minor code update and replace of Get-WMIObject with Get-CIMInstance in Get-ComputerData function
-4.0.9.2 - (2021-01-13) - Merged AdminService endpoint code into 1 function, minor corrections in Get-ComputerData 
+4.0.9.2 - (2021-01-13) - Merged Admin endpoint code into 1 function, minor corrections in Get-ComputerData
+4.0.9.3 - (2021-01-14) - overlooked typo in notes: TargetOSVersion --> OSVersion, changed ApplyDriverPackage moniker to InvokeMDMPackage as a more generic description
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
@@ -119,7 +120,7 @@ param (
 	[parameter(HelpMessage = "Name of the XML file specifying the driver package(s) to apply.")]
 	[string]$XMLFileName = "DriverPackages.xml",
 	[parameter(HelpMessage = "Name of the log file for script output.")]
-	[string]$LogFileName = "ApplyDriverPackage.log"
+	[string]$LogFileName = "InvokeMDMPackage.log"
 )
 
 DynamicParam {
@@ -150,7 +151,7 @@ DynamicParam {
 }
 
 Process {
-	Write-CMLogEntry -Value "[ApplyDriverPackage]: Apply Driver Package script version $($ScriptVersion) initiated in $($DeploymentType) deployment mode"
+	Write-CMLogEntry -Value "[InvokeMDMPackage]: Apply MDM Package script version $($ScriptVersion) initiated in $($DeploymentType) deployment mode"
 	Write-CMLogEntry -Value " - Apply driver package in $($OperationalMode) mode"
 	try {
 		# Determine computer OS version, Architecture, Manufacturer, Model, SystemSKU and FallbackSKU
@@ -182,7 +183,7 @@ Process {
 		}
 	}
 	catch [System.Exception] {
-		New-ErrorRecord -Message "[ApplyDriverPackage]: Apply Driver Package process failed, please refer to previous error or warning messages"
+		New-ErrorRecord -Message "[InvokeMDMPackage]: Apply Driver Package process failed, please refer to previous error or warning messages"
 		# Main try-catch block was triggered, this should cause the script to fail with exit code 1
 		exit 1
 	}
@@ -224,7 +225,7 @@ Begin {
 		# Construct context for log entry
 		$Context = $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)
 		# Construct final log entry
-		$script:LogEntries.Add("<![LOG[$($Value)]LOG]!><time=""$($Time)"" date=""$($Date)"" component=""ApplyDriverPackage"" context=""$($Context)"" type=""$($Severity)"" thread=""$($PID)"" file="""">") | Out-Null
+		$script:LogEntries.Add("<![LOG[{0}]LOG]!><time=""{1}"" date=""{2}"" component=""InvokeMDMPackage"" context=""{3}"" type=""{4}"" thread=""{5}"" file=""{6}"">") -f $Value, $Time, $Date, $Context, $Severity, $PID, $File | Out-Null
 		Write-Verbose -Message $script:LogEntries[-1]
 	}
 	function New-ErrorRecord {
@@ -945,7 +946,7 @@ End {
 	if ($DebugMode.IsPresent) { Write-CMLogEntry -Value " - Apply Driver Package script has successfully completed in <debug mode>" }
 	# Reset OSDDownloadContent.exe dependant variables before next task sequence step
 	else { @("OSDDownloadDownloadPackages", "OSDDownloadDestinationLocationType", "OSDDownloadDestinationVariable", "OSDDownloadDestinationPath") | % { Set-MDMTaskSequenceVariable -TSVariable $_ } }
-	Write-CMLogEntry -Value "[ApplyDriverPackage]: Completed Apply Driver Package process"
+	Write-CMLogEntry -Value "[InvokeMDMPackage]: Completed Apply Driver Package process"
 	# Write final output to log file
 	Out-File -FilePath $LogFilePath -InputObject $script:LogEntries -Encoding default -NoClobber -Force
 }
