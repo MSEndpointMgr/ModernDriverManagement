@@ -31,7 +31,7 @@ Define a filter used when calling ConfigMgr WebService to only return objects ma
 Define the operational mode, either Production (default) or Pilot, for when calling ConfigMgr WebService to only return objects matching the selected operational mode.
 .PARAMETER DriverInstallMode
 Specify to install drivers using DISM.exe with recurse option (default) or spawn a new process for each driver.
-.PARAMETER DriverSelection
+.PARAMETER QuerySource
 Specify to download drivers using an XML file or the Admin service (default) as query source.
 .PARAMETER UseDriverFallback
 Activate search for a driver fallback package if SystemSKU or computer model does not return exact results.
@@ -40,7 +40,7 @@ Specify a custom path for the PreCache directory, overriding the default CCMCach
 .PARAMETER DebugMode
 Set the script to operate in 'DebugMode', hence no actual installation of drivers.
 .PARAMETER XMLFileName
-Option to override (default) name of the XML selection file: DriverPackages.xml
+Option to override (default) name of the XML selection file: MDMPackages.xml
 .PARAMETER LogFileName
 Option to override (default) name of the script output logfile: InvokeMDMPackage.log
 .EXAMPLE
@@ -63,7 +63,7 @@ Option to override (default) name of the script output logfile: InvokeMDMPackage
 # Run in a debug mode for testing purposes and overriding the (automatically detected) computer specifications:
 .\Invoke-MDMPackage.ps1 -DebugMode -Endpoint "CM01.domain.com" -UserName "svc@domain.com" -Password "svc-password" -OSVersion 1909 -Manufacturer "Lenovo" -ComputerModel "Thinkpad X1 Tablet" -SystemSKU "20KKS7"
 # Detect, download and apply drivers during OS deployment with ConfigMgr and use an XML table as the source of driver package details instead of the AdminService:
-.\Invoke-MDMPackage.ps1 -OSVersion "1909" -OSVersionFallback "1903" -DriverSelection XML -XMLFileName "Install32bitDrivers.xml"
+.\Invoke-MDMPackage.ps1 -OSVersion "1909" -OSVersionFallback "1903" -QuerySource XML -XMLFileName "Install32bitDrivers.xml"
 .NOTES
 FileName:	Invoke-MDMPackage.ps1
 CoAuthor:	Chris Kenis
@@ -76,19 +76,21 @@ Version history:
 4.0.9.1 - (2021-01-05) - Use of Dynamic Param for validating and providing default values for OSVersion + minor code update and replace of Get-WMIObject with Get-CIMInstance in Get-ComputerData function
 4.0.9.2 - (2021-01-13) - Merged Admin endpoint code into 1 function, minor corrections in Get-ComputerData
 4.0.9.3 - (2021-01-14) - overlooked typo in notes: TargetOSVersion --> OSVersion, changed ApplyDriverPackage moniker to InvokeMDMPackage as a more generic description
+4.0.9.7 - (2021-01-21) - Replaced the word "Driver" with "MDM" where appropriate + first attempt to incorporate BIOS packages in the same script, ToDo: review Install-MDMPackageContent
+
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
-	[parameter(HelpMessage = "Specify the deployment type mode for driver package deployments, e.g. 'BareMetal' (= default), 'OSUpdate', 'DriverUpdate', 'PreCache'.")]
-	[ValidateSet("BareMetal", "OSUpdate", "DriverUpdate", "PreCache")]
+	[parameter(HelpMessage = "Specify the deployment type mode for MDM package deployments: 'BareMetal' (= default), 'OSUpdate', 'SystemUpdate' or 'PreCache'.")]
+	[ValidateSet("BareMetal", "OSUpdate", "SystemUpdate", "PreCache")]
 	[string]$DeploymentType = "BareMetal",
-	[parameter(HelpMessage = "Specify the fully qualified domain name of the server hosting the AdminService, e.g. CM01.domain.local.")]
+	[parameter(HelpMessage = "Specify the fully qualified domain name of the server hosting a valid webservice, e.g. CM01.domain.local.")]
 	[string]$Endpoint,
-	[parameter(ParameterSetName = "Debug", HelpMessage = "Specify the service account user name used for authenticating against the AdminService endpoint.")]
+	[parameter(ParameterSetName = "Debug", HelpMessage = "Specify the service account user name used for authenticating against the endpoint.")]
 	[string]$UserName,
-	[parameter(ParameterSetName = "Debug", HelpMessage = "Specify the service account password used for authenticating against the AdminService endpoint.")]
+	[parameter(ParameterSetName = "Debug", HelpMessage = "Specify the service account password used for authenticating against the endpoint.")]
 	[string]$Password,
-	[parameter(HelpMessage = "Use this switch to check for driver packages that match a previous version of Windows.")]
+	[parameter(HelpMessage = "Use this switch to check for MDM packages that match a previous version of Windows.")]
 	[switch]$OSVersionFallback,
 	[parameter(HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
 	[ValidateSet("x64", "x86")]
@@ -97,29 +99,29 @@ param (
 	[string]$Manufacturer,
 	[parameter(HelpMessage = "Override the automatically detected computer model.")]
 	[string]$ComputerModel,
-	[parameter(HelpMessage = "Override the automatically detected SystemSKU (manufacterer's model/type code).")]
+	[parameter(HelpMessage = "Override the automatically detected SystemSKU (manufacturer's model/type code).")]
 	[string]$SystemSKU,
-	[parameter(HelpMessage = "Define a filter to only return matched objects when querying AdminService.")]
-	[ValidateNotNullOrEmpty()]
-	[string]$Filter = "Drivers",
-	[parameter(HelpMessage = "Set operational mode to: Production - Pilot, when querying packages from ConfigMgr WebService.")]
+	[parameter(HelpMessage = "Define a filter to only return matched BIOS or Driver (= default) packages when querying via a webservice.")]
+	[ValidateSet("BIOS", "Driver")]
+	[string]$Filter = "Driver",
+	[parameter(HelpMessage = "Set operational mode to Production (= default) or Pilot when querying MDM packages via a webservice.")]
 	[ValidateSet("Production", "Pilot")]
 	[string]$OperationalMode = "Production",
-	[parameter(HelpMessage = "Specify whether to install drivers using DISM.exe with recurse(= default) option or spawn a new process for each driver.")]
+	[parameter(HelpMessage = "Specify whether to invoke DISM.exe with Recurse (= default) option or spawn a Single new process for each driver.")]
 	[ValidateSet("Single", "Recurse")]
-	[string]$DriverInstallMode = "Recurse",
-	[parameter(HelpMessage = "Specify the source to query for selection of driver(s) to apply: XML or AdminService (= default)")]
-	[ValidateSet("XML", "AdminService")]
-	[string]$DriverSelection = "AdminService",
-	[parameter(HelpMessage = "Enable search for driver fallback package(s) when none are returned based on computer details.")]
-	[switch]$UseDriverFallback,
+	[string]$InstallMode = "Recurse",
+	[parameter(HelpMessage = "Specify the source to query for selection of packages to apply: XML or WebService (= default)")]
+	[ValidateSet("XML", "WebService")]
+	[string]$QuerySource = "WebService",
+	[parameter(HelpMessage = "Enable search for MDM fallback package(s) if none are returned based on computer details.")]
+	[switch]$UseFallbackPackage,
 	[parameter(HelpMessage = "Specify a custom path for the PreCache directory, overriding the default CCMCache directory.")]
 	[string]$PreCachePath,
-	[parameter(HelpMessage = "Set the script to operate in 'DebugMode' deployment type mode, drivers will not be downloaded nor installed.")]
+	[parameter(HelpMessage = "Set the script to operate in 'DebugMode' deployment type mode so nothing will be downloaded or installed.")]
 	[switch]$DebugMode,
-	[parameter(HelpMessage = "Name of the XML file specifying the driver package(s) to apply.")]
-	[string]$XMLFileName = "DriverPackages.xml",
-	[parameter(HelpMessage = "Name of the log file for script output.")]
+	[parameter(HelpMessage = "Name of the XML file specifying the MDM package(s) to apply: MDMPackages.xml (= default) ")]
+	[string]$XMLFileName = "MDMPackages.xml",
+	[parameter(HelpMessage = "Name of the log file for script output: InvokeMDMPackage.log (= default)")]
 	[string]$LogFileName = "InvokeMDMPackage.log"
 )
 
@@ -151,46 +153,44 @@ DynamicParam {
 }
 
 Process {
-	Write-CMLogEntry -Value "[InvokeMDMPackage]: Apply MDM Package script version $($ScriptVersion) initiated in $($DeploymentType) deployment mode"
-	Write-CMLogEntry -Value " - Apply driver package in $($OperationalMode) mode"
+	Write-CMLogEntry -Value "[InvokeMDMPackage]: Apply $($OperationalMode) MDM Package(s) initiated in $($DeploymentType) deployment mode using script version $($ScriptVersion)."
 	try {
 		# Determine computer OS version, Architecture, Manufacturer, Model, SystemSKU and FallbackSKU
 		$ComputerData = Get-ComputerData
-		#Resolve, validate, test and authenticate the Admin webservice
-		$AdminService = Get-AdminService
-		# Construct array list for matched drivers packages
-		$DriverPackageList = New-Object -TypeName "System.Collections.ArrayList"
-		Write-CMLogEntry -Value "[DriverPackage]: Starting driver package retrieval using $($DriverSelection) as query source."
-		switch ($DriverSelection) {
+		#Resolve, validate, test and authenticate the MDM webservice
+		$WebService = Get-MDMWebService
+		# Construct array list for matched MDM packages
+		$MDMPackageList = New-Object -TypeName "System.Collections.ArrayList"
+		switch ($QuerySource) {
 			"XML" {
 				# Define the path for the pre-downloaded XML Package Logic file
 				$XMLPackageLogicFile = Join-Path -Path $Script:TSEnvironment.Value("MDMXMLPackage01") -ChildPath $XMLFileName
-				if (Test-Path -Path $XMLPackageLogicFile) { $DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -XMLFilePath $XMLPackageLogicFile }
-				else { New-ErrorRecord -Message " - Failed to locate required $($XMLFileName) logic file for XMLPackage deployment type, ensure it has been pre-downloaded in a Download Package Content step before running this script" -ThrowError }
+				if (Test-Path -Path $XMLPackageLogicFile) { $MDMPackageList = Get-MDMPackages -ComputerData $ComputerData -XMLFilePath $XMLPackageLogicFile }
+				else { New-ErrorRecord -Message " - Failed to locate required $($XMLFileName) logic file, ensure it has been pre-downloaded in a Download Package Content step before running this script" -ThrowError }
 			}
-			"AdminService" {
-				# Retrieve available driver packages from web service
-				$DriverPackageList = Get-DriverPackages -ComputerData $ComputerData -FallBack:$UseDriverFallback -AdminService $AdminService -UrlResource "/SMS_Package?`$filter=contains(Name,'$($Filter)')"
+			"WebService" {
+				# Retrieve available MDM packages from a web service
+				$MDMPackageList = Get-MDMPackages -ComputerData $ComputerData -FallBack:$UseFallbackPackage -WebService $WebService -UrlResource "/SMS_Package?`$filter=contains(Name,'$($Filter)')"
 			}
 		}#switch
 		# At this point, the code below here is not allowed to be executed in debug mode, as it requires access to the Microsoft.SMS.TSEnvironment COM object
 		if (-not $DebugMode.IsPresent) {
-			# Attempt to download the matched driver package content files from distribution point
-			$DriverPackageContentLocation = Invoke-DownloadDriverPackageContent -Package $DriverPackageList[0]
-			# Depending on deployment type, take action accordingly when applying the driver package files
-			Install-DriverPackageContent -ContentLocation $DriverPackageContentLocation
-			Write-CMLogEntry -Value "[DriverPackageInstall]: Completed driver package install phase"
+			# Attempt to download the matched package content files from distribution point
+			$MDMPackageContentLocation = Invoke-MDMPackageContent -Package $MDMPackageList[0]
+			# Depending on deployment type, take action accordingly when applying the MDM package files
+			Install-MDMPackageContent -ContentLocation $MDMPackageContentLocation
+			Write-CMLogEntry -Value "[MDMPackageInstall]: Completed MDM package install phase"
 		}
 	}
 	catch [System.Exception] {
-		New-ErrorRecord -Message "[InvokeMDMPackage]: Apply Driver Package process failed, please refer to previous error or warning messages"
+		New-ErrorRecord -Message "[InvokeMDMPackage]: Apply MDM Package process failed, please refer to previous error or warning messages"
 		# Main try-catch block was triggered, this should cause the script to fail with exit code 1
 		exit 1
 	}
 }#process
 
 Begin {
-	[version]$ScriptVersion = "4.0.9.2"
+	[version]$ScriptVersion = "4.0.9.7"
 	# Set script error preference variable
 	$ErrorActionPreference = "Stop"
 	$LogsDirectory = Join-Path -Path $env:SystemRoot -ChildPath "Temp"
@@ -301,19 +301,18 @@ Begin {
 		# Join character array and return value
 		return -join @($StringArray)
 	}
-	function Get-AdminService {
-		Write-CMLogEntry -Value "[AdminService]: Starting AdminService endpoint phase"
-		# Validate correct value have been either set as a TS environment variable or passed as parameter input for service account user name used to authenticate against the AdminService
+	function Get-MDMWebService {
+		Write-CMLogEntry -Value "[WebService]: Starting endpoint validation phase"
+		# Validation of service account credentials set via TS environment variables or script parameter input, empty string will throw error in ConvertTo-ObfuscatedString function
 		if (-not ($PSBoundParameters.ContainsKey('UserName'))) {
 			try {
-				# Attempt to read TSEnvironment variable MDMUserName, terminating error is thrown when empty string is parsed to obfuscate function
 				$UserName = $Script:TSEnvironment.Value("MDMUserName")
 				$ObfuscatedUserName = ConvertTo-ObfuscatedString -InputObject $UserName
 				Write-CMLogEntry -Value " - Successfully read service account username: $($ObfuscatedUserName)"
 			}
 			catch {
 				if ($DebugMode.IsPresent) { New-ErrorRecord -Message " - Service account username could not be determined from parameter input" -ThrowError }
-				New-ErrorRecord -Message " - Required service account password could not be determined from TS environment variable" -ThrowError
+				New-ErrorRecord -Message " - Required service account username could not be determined from TS environment variable [MDMUserName]" -ThrowError
 			}
 		}
 		if (-not ($PSBoundParameters.ContainsKey('Password'))) {
@@ -325,21 +324,21 @@ Begin {
 			}
 			catch {
 				if ($DebugMode.IsPresent) { New-ErrorRecord -Message " - Service account password could not be determined from parameter input" -ThrowError }
-				New-ErrorRecord -Message " - Required service account password could not be determined from TS environment variable" -ThrowError
+				New-ErrorRecord -Message " - Required service account password could not be determined from TS environment variable [MDMPassword]" -ThrowError
 			}
 		}
-		$AdminServiceEndpointType = "Internal"
+		$WebServiceEndpointType = "Internal"
 		switch ($DeploymentType) {
 			"BareMetal" {
 				$SMSInWinPE = $Script:TSEnvironment.Value("_SMSTSInWinPE")
-				if ($SMSInWinPE -eq $true) { Write-CMLogEntry -Value " - Script is running within a task sequence in WinPE phase, automatically configuring AdminService endpoint type" }
+				if ($SMSInWinPE -eq $true) { Write-CMLogEntry -Value " - Script is running within a task sequence in WinPE phase, using EndPoint script parameter for configuring WebService" }
 				else { New-ErrorRecord -Message " - Script is not running in WinPE during $($DeploymentType) deployment type, this is not a supported scenario" -ThrowError }
 			}
 			"OSUpdate" {}
-			"DriverUpdate" {}
+			"SystemUpdate" {}
 			"PreCache" {}
 			default {
-				Write-CMLogEntry -Value " - Attempting to determine AdminService endpoint type based on current active Management Point candidates and from ClientInfo class"
+				Write-CMLogEntry -Value " - Attempting to determine WebService endpoint type based on current active Management Point candidates and from ClientInfo class"
 				# Determine active MP candidates
 				$ActiveMPCandidates = Get-WmiObject -Namespace "root\ccm\LocationServices" -Class "SMS_ActiveMPCandidate"
 				[byte]$ActiveMPInternalCandidatesCount = ($ActiveMPCandidates | Where-Object { $PSItem.Type -like "Assigned" } | Measure-Object).Count
@@ -352,57 +351,57 @@ Begin {
 							# Attempt to read TSEnvironment variable MDMExternalEndpoint
 							$ExternalEndpoint = $Script:TSEnvironment.Value("MDMExternalEndpoint")
 							if (-not([string]::IsNullOrEmpty($ExternalEndpoint))) {
-								Write-CMLogEntry -Value " - Successfully read external endpoint address for AdminService through CMG from TS environment variable 'MDMExternalEndpoint': $($ExternalEndpoint)"
+								Write-CMLogEntry -Value " - Successfully read external endpoint address for WebService through CMG from TS environment variable 'MDMExternalEndpoint': $($ExternalEndpoint)"
 							}
-							else { New-ErrorRecord -Message " - Required external endpoint address for AdminService through CMG could not be determined from TS environment variable" -ThrowError }
+							else { New-ErrorRecord -Message " - Required external endpoint address for WebService through CMG could not be determined from TS environment variable [MDMExternalEndpoint]" -ThrowError }
 							# Attempt to read TSEnvironment variable MDMClientID
 							$ClientID = $Script:TSEnvironment.Value("MDMClientID")
 							if (-not([string]::IsNullOrEmpty($ClientID))) {
-								Write-CMLogEntry -Value " - Successfully read client identification for AdminService through CMG from TS environment variable 'MDMClientID': $($ClientID)"
+								Write-CMLogEntry -Value " - Successfully read client identification for WebService through CMG from TS environment variable 'MDMClientID': $($ClientID)"
 							}
-							else { New-ErrorRecord -Message " - Required client identification for AdminService through CMG could not be determined from TS environment variable" -ThrowError }
+							else { New-ErrorRecord -Message " - Required client identification for WebService through CMG could not be determined from TS environment variable [MDMClientID]" -ThrowError }
 							# Attempt to read TSEnvironment variable MDMTenantName
 							$TenantName = $Script:TSEnvironment.Value("MDMTenantName")
 							if (-not([string]::IsNullOrEmpty($TenantName))) {
-								Write-CMLogEntry -Value " - Successfully read client identification for AdminService through CMG from TS environment variable 'MDMTenantName': $($TenantName)"
+								Write-CMLogEntry -Value " - Successfully read client identification for WebService through CMG from TS environment variable 'MDMTenantName': $($TenantName)"
 							}
-							else { New-ErrorRecord -Message " - Required client identification for AdminService through CMG could not be determined from TS environment variable" -ThrowError }
-							$AdminServiceEndpointType = "External"
+							else { New-ErrorRecord -Message " - Required client identification for WebService through CMG could not be determined from TS environment variable [MDMTenantName]" -ThrowError }
+							$WebServiceEndpointType = "External"
 						}
-						else { New-ErrorRecord -Message " - Detected as an Internet client but unable to acquire External AdminService endpoint, bailing out" -ThrowError }
+						else { New-ErrorRecord -Message " - Detected as an Internet client but unable to acquire External WebService endpoint, bailing out..." -ThrowError }
 					}
 					$false {
-						if ($ActiveMPInternalCandidatesCount -lt 1) { New-ErrorRecord -Message " - Detected as an Intranet client but unable to acquire Internal AdminService endpoint, bailing out" -ThrowError }
+						if ($ActiveMPInternalCandidatesCount -lt 1) { New-ErrorRecord -Message " - Detected as an Intranet client but unable to acquire Internal WebService endpoint, bailing out..." -ThrowError }
 					}
 				}#switch
-			}
+			}#default
 		}#switch
-		# Construct PSCredential object for AdminService authentication, this is required for both endpoint types
+		# Construct PSCredential object for WebService authentication, this is required for both endpoint types
 		$Credential = Get-AuthCredential -UserName $UserName -Password $Password
-		switch ($AdminServiceEndpointType) {
+		switch ($WebServiceEndpointType) {
 			"Internal" {
 				if (-not $PSBoundParameters.Contains("Endpoint")) {
 					$Endpoint = $ActiveMPCandidates | Where-Object Locality -gt 0 | Select-Object -First 1 -ExpandProperty MP
 				}
-				$AdminServiceURL = "https://{0}/AdminService/wmi" -f $Endpoint
+				$WebServiceURL = "https://{0}/AdminService/wmi" -f $Endpoint
 			}
 			"External" { 
-				$AdminServiceURL = "{0}/wmi" -f $ExternalEndpoint
+				$WebServiceURL = "{0}/wmi" -f $ExternalEndpoint
 				# Get authentication token needed against the Cloud Management Gateway
 				$AuthToken = Get-AuthToken -TenantName $TenantName -ClientID $ClientID -Credential $Credential
 			}
 		}
-		Write-CMLogEntry -Value " - AdminService endpoint type is: $($AdminServiceEndpointType) and can be reached via URL: $($AdminServiceURL)"
-		$AdminServiceEndpoint = [PSCustomObject]@{
-			URL        = $AdminServiceURL
-			Type       = $AdminServiceEndpointType
+		Write-CMLogEntry -Value " - WebService endpoint type is: $($WebServiceEndpointType) and can be reached via URL: $($WebServiceURL)"
+		$WebServiceEndpoint = [PSCustomObject]@{
+			URL        = $WebServiceURL
+			Type       = $WebServiceEndpointType
 			ClientID   = $ClientID
 			TenantName = $TenantName
 			AuthToken  = $AuthToken
 			Credential = $Credential
 		}
-		Write-CMLogEntry -Value "[AdminService]: Completed AdminService endpoint phase"
-		return $AdminServiceEndpoint
+		Write-CMLogEntry -Value "[WebService]: Completed WebService endpoint phase"
+		return $WebServiceEndpoint
 	}
 	function Install-AuthModule {
 		param( $ModuleName = "PSIntuneAuth" )
@@ -456,56 +455,58 @@ Begin {
 		$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList @($UserName, $EncryptedPassword)
 		return $Credential
 	}
-	function Get-AdminServiceItem {
+	function Get-MDMWebServiceItem {
 		param(
-			[parameter(Mandatory, HelpMessage = "Specify the resource for the AdminService API call, e.g. '/SMS_Package'.")]
+			[parameter(Mandatory, HelpMessage = "Specify the resource for the WebService API call, e.g. '/SMS_Package'.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$Resource,
-			[PSCustomObject]$AdminServiceEndpoint
+			[PSCustomObject]$WebServiceEndpoint
 		)
-		$AdminServiceUri = $AdminServiceEndpoint.URL + $Resource
-		Write-CMLogEntry -Value " - Calling AdminService endpoint with URI: $($AdminServiceUri)"
-		switch ($AdminServiceEndpoint.Type) {
+		$WebServiceUri = $WebServiceEndpoint.URL + $Resource
+		Write-CMLogEntry -Value " - Calling WebService endpoint with URI: $($WebServiceUri)"
+		switch ($WebServiceEndpoint.Type) {
 			"External" {
-				try { $AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Headers $AdminServiceEndpoint.AuthToken -ErrorAction Stop }
-				catch [System.Exception] { New-ErrorRecord -Message " - Failed to retrieve available package items from AdminService endpoint. Error message: $($PSItem.Exception.Message)" -ThrowError }
+				try { $WebServiceResponse = Invoke-RestMethod -Method Get -Uri $WebServiceUri -Headers $WebServiceEndpoint.AuthToken -ErrorAction Stop }
+				catch [System.Exception] { New-ErrorRecord -Message " - Failed to retrieve available package items from WebService endpoint. Error message: $($PSItem.Exception.Message)" -ThrowError }
 			}
 			"Internal" {
-				try { $AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Credential $AdminServiceEndpoint.Credential -ErrorAction Stop	}
+				try { $WebServiceResponse = Invoke-RestMethod -Method Get -Uri $WebServiceUri -Credential $WebServiceEndpoint.Credential -ErrorAction Stop	}
 				catch [System.Security.Authentication.AuthenticationException] {
-					Write-CMLogEntry -Value " - The remote AdminService endpoint certificate is invalid according to the validation procedure. Error message: $($PSItem.Exception.Message)" -Severity 2
-					Write-CMLogEntry -Value " - Will attempt to set the current session to ignore self-signed certificates and retry AdminService endpoint connection" -Severity 2
+					Write-CMLogEntry -Value " - The remote WebService endpoint certificate is invalid according to the validation procedure. Error message: $($PSItem.Exception.Message)" -Severity 2
+					Write-CMLogEntry -Value " - Will attempt to set the current session to ignore self-signed certificates and retry WebService endpoint connection" -Severity 2
 					# Convert encoded base64 string for ignore self-signed certificate validation functionality
 					$CertificationValidationCallbackEncoded = "DQAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAdQBzAGkAbgBnACAAUwB5AHMAdABlAG0AOwANAAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAB1AHMAaQBuAGcAIABTAHkAcwB0AGUAbQAuAE4AZQB0ADsADQAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAdQBzAGkAbgBnACAAUwB5AHMAdABlAG0ALgBOAGUAdAAuAFMAZQBjAHUAcgBpAHQAeQA7AA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgAHUAcwBpAG4AZwAgAFMAeQBzAHQAZQBtAC4AUwBlAGMAdQByAGkAdAB5AC4AQwByAHkAcAB0AG8AZwByAGEAcABoAHkALgBYADUAMAA5AEMAZQByAHQAaQBmAGkAYwBhAHQAZQBzADsADQAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAcAB1AGIAbABpAGMAIABjAGwAYQBzAHMAIABTAGUAcgB2AGUAcgBDAGUAcgB0AGkAZgBpAGMAYQB0AGUAVgBhAGwAaQBkAGEAdABpAG8AbgBDAGEAbABsAGIAYQBjAGsADQAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAewANAAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgAHAAdQBiAGwAaQBjACAAcwB0AGEAdABpAGMAIAB2AG8AaQBkACAASQBnAG4AbwByAGUAKAApAA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAewANAAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAaQBmACgAUwBlAHIAdgBpAGMAZQBQAG8AaQBuAHQATQBhAG4AYQBnAGUAcgAuAFMAZQByAHYAZQByAEMAZQByAHQAaQBmAGkAYwBhAHQAZQBWAGEAbABpAGQAYQB0AGkAbwBuAEMAYQBsAGwAYgBhAGMAawAgAD0APQBuAHUAbABsACkADQAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgAHsADQAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAUwBlAHIAdgBpAGMAZQBQAG8AaQBuAHQATQBhAG4AYQBnAGUAcgAuAFMAZQByAHYAZQByAEMAZQByAHQAaQBmAGkAYwBhAHQAZQBWAGEAbABpAGQAYQB0AGkAbwBuAEMAYQBsAGwAYgBhAGMAawAgACsAPQAgAA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAZABlAGwAZQBnAGEAdABlAA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAKAANAAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAATwBiAGoAZQBjAHQAIABvAGIAagAsACAADQAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgAFgANQAwADkAQwBlAHIAdABpAGYAaQBjAGEAdABlACAAYwBlAHIAdABpAGYAaQBjAGEAdABlACwAIAANAAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAWAA1ADAAOQBDAGgAYQBpAG4AIABjAGgAYQBpAG4ALAAgAA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIABTAHMAbABQAG8AbABpAGMAeQBFAHIAcgBvAHIAcwAgAGUAcgByAG8AcgBzAA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAKQANAAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgAHsADQAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgAHIAZQB0AHUAcgBuACAAdAByAHUAZQA7AA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAfQA7AA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAB9AA0ACgAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAfQANAAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAB9AA0ACgAgACAAIAAgACAAIAAgACAA"
 					$CertificationValidationCallback = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($CertificationValidationCallbackEncoded))
-					# Load required type definition to be able to ignore self-signed certificate to circumvent issues with AdminService running with ConfigMgr self-signed certificate binding
+					# Load required type definition to be able to ignore self-signed certificate to circumvent issues with WebService running with ConfigMgr self-signed certificate binding
 					Add-Type -TypeDefinition $CertificationValidationCallback
 					[ServerCertificateValidationCallback]::Ignore()
 					try {
-						# Call AdminService endpoint to retrieve package data
-						$AdminServiceResponse = Invoke-RestMethod -Method Get -Uri $AdminServiceUri -Credential $AdminServiceEndpoint.Credential -ErrorAction Stop
+						# Call WebService endpoint to retrieve package data
+						$WebServiceResponse = Invoke-RestMethod -Method Get -Uri $WebServiceUri -Credential $WebServiceEndpoint.Credential -ErrorAction Stop
 					}
-					catch [System.Exception] { New-ErrorRecord -Message " - Failed to retrieve available package items from AdminService endpoint. Error message: $($PSItem.Exception.Message)" -ThrowError }
+					catch [System.Exception] { New-ErrorRecord -Message " - Failed to retrieve available package items from WebService endpoint. Error message: $($PSItem.Exception.Message)" -ThrowError }
 				}
 			}
 		}
 		# Add returned driver package objects to array list
-		if ($null -ne $AdminServiceResponse.value) {
+		if ($null -ne $WebServiceResponse.value) {
 			# Construct array object to hold return value
 			$PackageArray = New-Object -TypeName System.Collections.ArrayList
-			foreach ($Package in $AdminServiceResponse.value) { $PackageArray.Add($Package) | Out-Null }
+			foreach ($Package in $WebServiceResponse.value) { $PackageArray.Add($Package) | Out-Null }
 			return $PackageArray
 		}
 		else { return $null }
 	}
 	function Get-ComputerData {
-		Write-CMLogEntry -Value "[PrerequisiteChecker]: Starting environment prerequisite checker"
+		Write-CMLogEntry -Value "[ComputerData]: Starting environment prerequisite checker"
 		# Gather computer details based upon specific computer Manufacturer
 		$ModelClass = "Win32_ComputerSystem"
 		$ModelProp = "Model"
 		$SkuClass = "MS_SystemInformation"
 		$SkuProp = "BaseBoardProduct"
+		# prevent matching with empty string in Confirm-MDMPackage function
 		$FallbackSKU = "None"
+		$OSVersionFallback = "None"
 		if (-not ($PSBoundParameters.ContainsKey('Manufacturer'))) { 
 			$ComputerSystem = Get-CimInstance -Class $ModelClass
 			$Manufacturer = $ComputerSystem.Manufacturer
@@ -606,7 +607,7 @@ Begin {
 			}
 		}
 		else { $OSArchitecture = $PSBoundParameters['OSArchitecture'] }
-		if (-not ($PSBoundParameters.ContainsKey('OSVersionFallback')) -and $UseDriverFallback.IsPresent) {
+		if (-not ($PSBoundParameters.ContainsKey('OSVersionFallback')) -and $UseFallbackPackage.IsPresent) {
 			#filter hashtable where buildnumbers are less than OSversion and select value from last entry to return the latest previous buildnumber
 			$OSVersionFallback = $script:OsBuildVersions.GetEnumerator() | Sort-Object Name | Where-Object { $_.Value -lt $OSVersion } | Select-Object -Last 1 -ExpandProperty Value
 		}
@@ -630,33 +631,28 @@ Begin {
 			SystemSKU         = $SystemSKU
 			FallbackSKU       = $FallBackSKU
 		}
-		Write-CMLogEntry -Value "[PrerequisiteChecker]: Completed environment prerequisite checker"
+		Write-CMLogEntry -Value "[ComputerData]: Completed environment prerequisite checker"
 		# Handle return value from function
 		return $ComputerDetails
 	}
-	function Get-DriverPackages {
-		[CmdletBinding(DefaultParameterSetName = "AdminService")]
+	function Get-MDMPackages {
+		[CmdletBinding(DefaultParameterSetName = "WebService")]
 		param(
 			[PSCustomObject]$ComputerData,
-			[parameter(Mandatory, ParameterSetName = "AdminService")]
+			[parameter(Mandatory, ParameterSetName = "WebService")]
 			[switch]$FallBack,
-			[parameter(Mandatory, ParameterSetName = "AdminService")]
-			[pscustomobject]$AdminService,
-			[parameter(Mandatory, ParameterSetName = "AdminService")]
+			[parameter(Mandatory, ParameterSetName = "WebService")]
+			[pscustomobject]$WebService,
+			[parameter(Mandatory, ParameterSetName = "WebService")]
 			[pscustomobject]$UrlResource,
 			[parameter(Mandatory, ParameterSetName = "XML")]
 			[System.IO.FileInfo]$XMLFilePath
 		)
+		Write-CMLogEntry -Value "[MDMPackage]: Starting MDM package retrieval using $($PSCmdLet.ParameterSetName) as query source."
 		try {
 			switch ($PSCmdLet.ParameterSetName) {
-				"XML" {
-					Write-CMLogEntry -Value " - Reading XML content logic file driver package entries"
-					$Packages = @((([xml]$(Get-Content -Path $XMLFilePath -Raw)).ArrayOfCMPackage).CMPackage) | Where-Object { $_.Name -match $Filter }
-				}
-				"AdminService" {
-					Write-CMLogEntry -Value " - Querying AdminService for driver package instances"
-					$Packages = @(Get-AdminServiceItem -Resource $UrlResource -AdminServiceEndpoint $AdminService )
-				}
+				"XML" { $Packages = @((([xml]$(Get-Content -Path $XMLFilePath -Raw)).ArrayOfCMPackage).CMPackage) | Where-Object { $_.Name -match $Filter } }
+				"WebService" { $Packages = @(Get-MDMWebServiceItem -Resource $UrlResource -WebServiceEndpoint $WebService ) }
 			}#switch
 			switch ($OperationalMode) {
 				"Production" { $Packages = $Packages | Where-Object { $_.Name -notmatch "Pilot|Legacy|Retired" } }
@@ -664,92 +660,105 @@ Begin {
 			}#switch
 		}
 		catch [System.Exception] {
-			New-ErrorRecord -Message " - An error occurred while calling $($DriverSelection) for a list of available driver packages. Error message: $($_.Exception.Message)" -ThrowError
+			New-ErrorRecord -Message " - An error occurred while retrieving available MDM packages. Error message: $($_.Exception.Message)" -ThrowError
 		}
-		# Match detected driver packages from web service call with computer details and OS image details gathered previously
-		$Packages = Confirm-DriverPackage -ComputerData $ComputerData -DriverPackage $Packages -OSVersionFallback:$FallBack
+		# Match detected MDM packages from webservice call with computer details and OS image details gathered previously
+		$Packages = Confirm-MDMPackage -ComputerData $ComputerData -MDMPackage $Packages -OSVersionFallback:$FallBack
 		switch ($Packages.Count) {
 			0 {
-				if ($FallBack.IsPresent) { $Packages = Get-DriverPackages -ComputerData $ComputerData -AdminService $AdminService -UrlResource "/SMS_Package?`$filter=contains(Name,'Driver Fallback Package')" }
-				else { New-ErrorRecord -Message " - No driver packages retrieved from $($DriverSelection) matching operational mode: $($OperationalMode)" -ThrowError }
+				if ($FallBack.IsPresent) { $Packages = Get-MDMPackages -ComputerData $ComputerData -WebService $WebService -UrlResource "/SMS_Package?`$filter=contains(Name,'$($Filter) Fallback Package')" }
+				else { New-ErrorRecord -Message " - No $($OperationalMode) MDM packages retrieved from $($PSCmdLet.ParameterSetName)." -ThrowError }
 			}
-			1 { Write-CMLogEntry -Value " - Successfully completed validation with a single driver package, script execution is allowed to continue" }
-			default { Write-CMLogEntry -Value " - Retrieved a total of $($Packages.Count) <$($OperationalMode)> driver packages from $($DriverSelection)" }
+			1 { Write-CMLogEntry -Value " - Successfully completed validation with a single $($OperationalMode) MDM package, script execution is allowed to continue" }
+			default { Write-CMLogEntry -Value " - Retrieved a total of $($Packages.Count) <$($OperationalMode)> MDM packages from $($PSCmdLet.ParameterSetName) as query source" }
 		}
 		return $Packages
 	}
-	function Confirm-DriverPackage {
+	function Confirm-MDMPackage {
 		param(
-			[parameter(Mandatory, HelpMessage = "Specify the computer details object from Get-ComputerDetails function.")]
+			[parameter(Mandatory, HelpMessage = "Specify the computer details object from Get-ComputerData function.")]
 			[PSCustomObject]$ComputerData,
-			[parameter(Mandatory, HelpMessage = "Specify the driver package object to be validated.")]
-			[System.Object[]]$DriverPackages,
-			[parameter(HelpMessage = "Check for drivers packages that match previous versions of Windows.")]
+			[parameter(Mandatory, HelpMessage = "Specify the MDM package object to be validated.")]
+			[System.Object[]]$MDMPackages,
+			[parameter(HelpMessage = "Check for MDM packages that match previous versions of Windows.")]
 			[switch]$OSVersionFallback
 		)
-		Write-CMLogEntry -Value "[DriverPackage]: Starting driver package matching phase"
-		[System.Collections.ArrayList]$DriverPackagesList = @()
-		foreach ($DriverPackage in $DriverPackages) {
-			# Add driver package model details depending on manufacturer to custom driver package details object
+		Write-CMLogEntry -Value "[MDMPackageConfirm]: Starting MDM package matching phase"
+		[System.Collections.ArrayList]$MDMPackagesList = @()
+		foreach ($MDMPackage in $MDMPackages) {
+			# initiate and empty variables for holding custom object values
 			$Model = $Architecture = $OSName = $OSVersion = $SystemSKU = ""
 			# - HP computer models require the manufacturer name to be a part of the model name, other manufacturers do not
 			try {
-				switch ($DriverPackage.Manufacturer) {
-					{ @("Hewlett-Packard", "HP") -contains $_ } { $Model = $DriverPackage.Name.Replace("Hewlett-Packard", "HP") }
-					default { $Model = $DriverPackage.Name.Replace($DriverPackage.Manufacturer, "") }
+				switch ($MDMPackage.Manufacturer) {
+					{ @("Hewlett-Packard", "HP") -contains $_ } { $Model = $MDMPackage.Name.Replace("Hewlett-Packard", "HP") }
+					default { $Model = $MDMPackage.Name.Replace($MDMPackage.Manufacturer, "") }
 				}
 				$Model = $Model.Replace(" - ", ":").Split(":").Trim()[1]
 			}
 			catch [System.Exception] { Write-CMLogEntry -Value "Failed. Error: $($_.Exception.Message)" -Severity 3 }
-			switch -Regex ($DriverPackage.Name) {
+			# fill up variables with regex matching results
+			switch -Regex ($MDMPackage.Name) {
 				"^.*(?<Architecture>(x86|x64)).*" { $Architecture = $Matches.Architecture }
 				"^.*Windows.*(?<OSName>(10)).*" { $OSName = -join @("Windows ", $Matches.OSName) }
 				"^.*Windows.*(?<OSVersion>(\d){4}).*" { $OSVersion = $Matches.OSVersion }
 			}
-			#retrieve SystemSKU from non-empty description field of driver package
-			try { $SystemSKU = [string]$DriverPackage.Description.Split(":").Replace("(", "").Replace(")", "")[1] }
+			# retrieve SystemSKU from non-empty description field of MDM package
+			try { $SystemSKU = [string]$MDMPackage.Description.Split(":").Replace("(", "").Replace(")", "")[1] }
 			catch { $SystemSKU = "" }
-			#using logical operators for validation of driver package compliancy with computer data fields
+			# using logical operators for validation of MDM package compliancy with computer data fields
+			# watch out when matching against an empty string or $Null -> returns True
 			$OSNameMatch = ($OSName -eq $ComputerData.OSName)
 			$OSVersionMatch = ($OSVersion -eq $ComputerData.OSVersion)
 			if (-not $OSVersionMatch -and $OSVersionFallback.IsPresent) { $OSVersionMatch = ($OSVersion -eq $ComputerData.FallBackOSVersion) }
 			$OSArchitectureMatch = ($Architecture -eq $ComputerData.Architecture)
-			$ManufacturerMatch = ($DriverPackage.Manufacturer -like $ComputerData.Manufacturer)
+			$ManufacturerMatch = ($MDMPackage.Manufacturer -like $ComputerData.Manufacturer)
 			$ComputerModelMatch = ($Model -like $ComputerData.Model)
+			# use correct Computer SKU match in debug string
+			$CompSKU = $ComputerData.SystemSKU
 			$SystemSKUMatch = ($SystemSKU -match $ComputerData.SystemSKU)
-			if (-not $SystemSKUMatch) { $SystemSKUMatch = ($SystemSKU -match $ComputerData.FallbackSKU) }
-			# Construct custom object to hold values for current driver package properties used for matching with current computer details
-			$DriverPackageDetails = [PSCustomObject]@{
-				PackageName    = $DriverPackage.Name
-				PackageID      = $DriverPackage.PackageID
-				PackageVersion = $DriverPackage.Version
-				DateCreated    = $DriverPackage.SourceDate
-				Manufacturer   = $DriverPackage.Manufacturer
-				Model          = $Model
-				SystemSKU      = $SystemSKU
-				OSName         = $OSName
-				OSVersion      = $OSVersion
-				Architecture   = $Architecture
+			if (-not $SystemSKUMatch) {
+				$CompSKU = $ComputerData.FallbackSKU
+				$SystemSKUMatch = ($SystemSKU -match $ComputerData.FallbackSKU)
 			}
 			#all matches must be true to confirm this driver package, grouping boolean operators allows pretty awesome validation rules :-)
 			[bool]$DetectionMethodResult = ($OSNameMatch -band $OSVersionMatch -band $OSArchitectureMatch -band $ManufacturerMatch -band $ComputerModelMatch -band $SystemSKUMatch)
-			if ($DetectionMethodResult) { $DriverPackagesList.Add($DriverPackageDetails) | Out-Null }
-		}#foreach DriverPackage
-		$DriverPackagesList.Sort()
-		Write-CMLogEntry -Value " - Found $($DriverPackagesList.Count) driver package(s) matching required computer details"
-		Write-CMLogEntry -Value "[DriverPackage]: Completed driver package matching phase"
-		return $DriverPackagesList
+			if ($DetectionMethodResult) {
+				$DriverPackageDetails = [PSCustomObject]@{
+					PackageName    = $MDMPackage.Name
+					PackageID      = $MDMPackage.PackageID
+					PackageVersion = $MDMPackage.Version
+					DateCreated    = $MDMPackage.SourceDate
+					Manufacturer   = $MDMPackage.Manufacturer
+					Model          = $Model
+					SystemSKU      = $SystemSKU
+					OSName         = $OSName
+					OSVersion      = $OSVersion
+					Architecture   = $Architecture
+				}
+				$MDMPackagesList.Add($DriverPackageDetails) | Out-Null 
+			}
+			else {
+				if ($DebugMode.IsPresent) {
+					Write-CMLogEntry -Value "MDM Package $($MDMPackage.PackageID) - $($MDMPackage.Name) did not match with $($ComputerData.Manufacturer) $($ComputerData.Model) $($CompSKU) - $($ComputerData.OSName) $($ComputerData.OSVersion) $($ComputerData.Architecture)."
+				}
+			}
+		}#foreach MDMPackage
+		$MDMPackagesList.Sort()
+		Write-CMLogEntry -Value " - Found $($MDMPackagesList.Count) MDM package(s) matching required computer details"
+		Write-CMLogEntry -Value "[MDMPackageConfirm]: Completed MDM package matching phase"
+		return $MDMPackagesList
 	}
-	function Invoke-DownloadDriverPackageContent {
+	function Invoke-MDMPackageContent {
 		param(
 			[parameter(Mandatory)][string]$Package
 		)
-		Write-CMLogEntry -Value "[DriverPackageDownload]: Starting driver package download phase"
-		Write-CMLogEntry -Value " - Attempting to download content files for matched driver package: $($Package.PackageName)"
-		# Depending on current deployment type, attempt to download driver package content
+		Write-CMLogEntry -Value "[MDMPackageDownload]: Starting MDM package download phase"
+		Write-CMLogEntry -Value " - Attempting to download content files for matched MDM package: $($Package.PackageName)"
+		# Depending on current deployment type, attempt to download MDM package content
 		#set default cmdlet params and reset value(s) if needed
 		$DestinationLocationType = "Custom"
-		$DestinationVariableName = "OSDDriverPackage"
+		$DestinationVariableName = "OSDMDMPackage"
 		$CustomLocationPath = ""
 		switch ($DeploymentType) {
 			"PreCache" {
@@ -766,7 +775,7 @@ Begin {
 				}
 				else { $DestinationLocationType = "CCMCache" }
 			}
-			default { $CustomLocationPath = "%_SMSTSMDataPath%\DriverPackage" }
+			default { $CustomLocationPath = "%_SMSTSMDataPath%\MDMPackage" }
 		}#switch
 		#setting various TS variables
 		Set-MDMTaskSequenceVariable -TSVariable "OSDDownloadDownloadPackages" -TsValue $Package.ID
@@ -787,7 +796,7 @@ Begin {
 				$InstallMode = "FullOS"
 				$FilePath = Join-Path -Path $env:windir -ChildPath "CCM\OSDDownloadContent.exe"
 			}
-			Write-CMLogEntry -Value " - Starting package content download process ($($InstallMode)), this might take some time"
+			Write-CMLogEntry -Value " - Starting package content download process in ($($InstallMode)), this might take some time"
 			$ReturnCode = Invoke-Executable -FilePath $FilePath
 			# Reset SMSTSDownloadRetryCount to 5 after attempted download
 			Set-MDMTaskSequenceVariable -TSVariable "SMSTSDownloadRetryCount" -TsValue 5
@@ -796,145 +805,140 @@ Begin {
 		}
 		catch [System.Exception] { New-ErrorRecord -Message " - An error occurred while attempting to download package content. Error message: $($_.Exception.Message)" -ThrowError }
 		if ($ReturnCode -eq 0) {
-			$DriverPackageContentLocation = $Script:TSEnvironment.Value("OSDDriverPackage01")
-			Write-CMLogEntry -Value " - Driver package content files was successfully downloaded to: $($DriverPackageContentLocation)"
-			# Handle return value for successful download of driver package content files
-			return $DriverPackageContentLocation
+			$MDMPackageContentLocation = $Script:TSEnvironment.Value("OSDDriverPackage01")
+			Write-CMLogEntry -Value " - MDM package content files was successfully downloaded to: $($MDMPackageContentLocation)"
+			# Handle return value for successful download of MDM package content files
+			return $MDMPackageContentLocation
 		}
 		else {
-			New-ErrorRecord -Message " - Driver package content download process returned an unhandled exit code: $($ReturnCode)" -ThrowError
+			New-ErrorRecord -Message " - MDM package content download process returned an unhandled exit code: $($ReturnCode)" -ThrowError
 		}
-		Write-CMLogEntry -Value "[DriverPackageDownload]: Completed driver package download phase"
+		Write-CMLogEntry -Value "[MDMPackageDownload]: Completed MDM package download phase"
 	}
-	function Install-DriverPackageContent {
+	function Install-MDMPackageContent {
 		param(
-			[parameter(Mandatory, HelpMessage = "Specify the full local path to the downloaded driver package content.")]
+			[parameter(Mandatory, HelpMessage = "Specify the full local path to the downloaded MDM package content.")]
 			[ValidateNotNullOrEmpty()]
 			[string]$ContentLocation
 		)
-		Write-CMLogEntry -Value "[DriverPackageInstall]: Starting driver package install phase"
-		# Detect if downloaded driver package content is a compressed archive that needs to be extracted before drivers are installed
-		$DriverPackageCompressedFile = Get-ChildItem -Path $ContentLocation -Filter "DriverPackage.*"
-		if ($null -ne $DriverPackageCompressedFile) {
-			Write-CMLogEntry -Value " - Downloaded driver package content contains a compressed archive with driver content"
+		Write-CMLogEntry -Value "[MDMPackageInstall]: Starting MDM package install phase"
+		# Detect if downloaded package content is a compressed archive that needs to be extracted before installation
+		$MDMPackageCompressedFile = Get-ChildItem -Path $ContentLocation -Filter "MDMPackage.*"
+		if ($null -ne $MDMPackageCompressedFile) {
+			Write-CMLogEntry -Value " - Downloaded package content contains a compressed archive"
 			# Detect if compressed format is Windows native zip or 7-Zip exe
-			switch -wildcard ($DriverPackageCompressedFile.Name) {
+			switch -wildcard ($MDMPackageCompressedFile.Name) {
 				"*.zip" {
 					try {
-						# Expand compressed driver package archive file
-						Write-CMLogEntry -Value " - Attempting to decompress driver package content file: $($DriverPackageCompressedFile.Name) to: $($ContentLocation)"
-						Expand-Archive -Path $DriverPackageCompressedFile.FullName -DestinationPath $ContentLocation -Force -ErrorAction Stop
-						Write-CMLogEntry -Value " - Successfully decompressed driver package content file"
+						Write-CMLogEntry -Value " - Attempting to decompress package content file: $($MDMPackageCompressedFile.Name) to: $($ContentLocation)"
+						Expand-Archive -Path $MDMPackageCompressedFile.FullName -DestinationPath $ContentLocation -Force -ErrorAction Stop
+						Write-CMLogEntry -Value " - Successfully decompressed package content file"
 					}
-					catch [System.Exception] {
-						New-ErrorRecord -Message " - Failed to decompress driver package content file. Error message: $($_.Exception.Message)" -ThrowError
-					}
-					try {
-						# Remove compressed driver package archive file
-						if (Test-Path -Path $DriverPackageCompressedFile.FullName) { Remove-Item -Path $DriverPackageCompressedFile.FullName -Force -ErrorAction Stop }
-					}
-					catch [System.Exception] {
-						New-ErrorRecord -Message " - Failed to remove compressed driver package content file after decompression. Error message: $($_.Exception.Message)" -ThrowError
-					}
+					catch [System.Exception] { New-ErrorRecord -Message " - Failed to decompress package content file. Error message: $($_.Exception.Message)" -ThrowError }
+					try { if (Test-Path -Path $MDMPackageCompressedFile.FullName) { Remove-Item -Path $MDMPackageCompressedFile.FullName -Force -ErrorAction Stop } }
+					catch [System.Exception] { New-ErrorRecord -Message " - Failed to remove compressed package content file after decompression. Error message: $($_.Exception.Message)" -ThrowError }
 				}
 				"*.exe" {
-					Write-CMLogEntry -Value " - Attempting to decompress self extracting driver package: $($DriverPackageCompressedFile.Name) to destinationfolder: $($ContentLocation)"
-					$ReturnCode = Invoke-Executable -FilePath $DriverPackageCompressedFile.FullName -Arguments "-o`"$($ContentLocation)`" -y"
+					Write-CMLogEntry -Value " - Attempting to decompress self extracting package: $($MDMPackageCompressedFile.Name) to destinationfolder: $($ContentLocation)"
+					$ReturnCode = Invoke-Executable -FilePath $MDMPackageCompressedFile.FullName -Arguments "-o`"$($ContentLocation)`" -y"
 					if ($ReturnCode -eq 0) {
-						Write-CMLogEntry -Value " - Successfully decompressed driver package"
-						Remove-Item -Path $DriverPackageCompressedFile.FullName -Force -ErrorAction SilentlyContinue
+						Write-CMLogEntry -Value " - Successfully decompressed package"
+						Remove-Item -Path $MDMPackageCompressedFile.FullName -Force -ErrorAction SilentlyContinue
 					}
-					else { New-ErrorRecord -Message " - The self-extracting driver package returned an error: $($ReturnCode)" -ThrowError }
+					else { New-ErrorRecord -Message " - The self-extracting package returned an error: $($ReturnCode)" -ThrowError }
 				}
 				"*.wim" {
 					try {
-						# Create mount location for driver package WIM file
-						$DriverPackageMountLocation = Join-Path -Path $ContentLocation -ChildPath "Mount"
-						if (-not(Test-Path -Path $DriverPackageMountLocation)) {
-							Write-CMLogEntry -Value " - Creating mount location directory: $($DriverPackageMountLocation)"
-							New-Item -Path $DriverPackageMountLocation -ItemType "Directory" -Force | Out-Null
+						$MDMPackageMountLocation = Join-Path -Path $ContentLocation -ChildPath "Mount"
+						if (-not(Test-Path -Path $MDMPackageMountLocation)) {
+							Write-CMLogEntry -Value " - Creating mount location directory: $($MDMPackageMountLocation)"
+							New-Item -Path $MDMPackageMountLocation -ItemType "Directory" -Force | Out-Null
 						}
 					}
-					catch [System.Exception] {
-						New-ErrorRecord -Message " - Failed to create mount location for WIM file. Error message: $($_.Exception.Message)" -ThrowError
-					}
+					catch [System.Exception] { New-ErrorRecord -Message " - Failed to create mount location for WIM file. Error message: $($_.Exception.Message)" -ThrowError }
 					try {
-						# Expand compressed driver package WIM file
-						Write-CMLogEntry -Value " - Attempting to mount driver package content WIM file: $($DriverPackageCompressedFile.Name) at: $($DriverPackageMountLocation)"
-						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ErrorAction Stop
-						Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file"
-						Write-CMLogEntry -Value " - Copying items from mount directory"
-						Get-ChildItem -Path	$DriverPackageMountLocation | Copy-Item -Destination $ContentLocation -Recurse -Container
+						Write-CMLogEntry -Value " - Attempting to mount package content WIM file: $($MDMPackageCompressedFile.Name) at: $($MDMPackageMountLocation)"
+						Mount-WindowsImage -ImagePath $MDMPackageCompressedFile.FullName -Path $MDMPackageMountLocation -Index 1 -ErrorAction Stop
+						Write-CMLogEntry -Value " - Successfully mounted package content WIM file"
+						Write-CMLogEntry -Value " - Copying items from mount directory..."
+						Get-ChildItem -Path	$MDMPackageMountLocation | Copy-Item -Destination $ContentLocation -Recurse -Container
 					}
-					catch [System.Exception] {
-						New-ErrorRecord -Message " - Failed to mount driver package content WIM file. Error message: $($_.Exception.Message)" -ThrowError
-					}
+					catch [System.Exception] { New-ErrorRecord -Message " - Failed to mount package content WIM file. Error message: $($_.Exception.Message)" -ThrowError }
 				}
-			}
-		}
-		switch ($DeploymentType) {
-			"BareMetal" {
-				# Apply drivers recursively from downloaded driver package location
-				Write-CMLogEntry -Value " - Attempting to apply drivers using dism.exe located in: $($ContentLocation)"
-				# Determine driver injection method from parameter input
-				Write-CMLogEntry -Value " - DriverInstallMode is currently set to: $($DriverInstallMode)"
-				switch ($DriverInstallMode) {
-					"Single" {
-						try {
-							# Get driver full path and install each driver seperately
-							$DriverINFs = Get-ChildItem -Path $ContentLocation -Recurse -Filter "*.inf" -ErrorAction Stop | Select-Object -Property FullName, Name
-							if ($null -ne $DriverINFs) {
-								foreach ($DriverINF in $DriverINFs) {
-									# Install specific driver
-									Write-CMLogEntry -Value " - Attempting to install driver: $($DriverINF.FullName)"
-									$ApplyDriverInvocation = Invoke-Executable -FilePath "dism.exe" -Arguments "/Image:$($Script:TSEnvironment.Value('OSDTargetSystemDrive'))\ /Add-Driver /Driver:`"$($DriverINF.FullName)`""
+			}#MDMPackageCompressedFile.Name
+			switch ($DeploymentType) {
+				"BareMetal" {
+					switch ($Filter) {
+						"Driver" {
+							# Apply installation recursively from downloaded package location
+							Write-CMLogEntry -Value " - Attempting to apply drivers using dism.exe located in: $($ContentLocation)"
+							# Determine driver injection method from parameter input
+							Write-CMLogEntry -Value " - DriverInstallMode is currently set to: $($DriverInstallMode)"
+							switch ($DriverInstallMode) {
+								"Single" {
+									try {
+										# Get driver full path and install each driver seperately
+										$DriverINFs = Get-ChildItem -Path $ContentLocation -Recurse -Filter "*.inf" -ErrorAction Stop | Select-Object -Property FullName, Name
+										if ($null -ne $DriverINFs) {
+											foreach ($DriverINF in $DriverINFs) {
+												# Install specific driver
+												Write-CMLogEntry -Value " - Attempting to install driver: $($DriverINF.FullName)"
+												$ApplyDriverInvocation = Invoke-Executable -FilePath "dism.exe" -Arguments "/Image:$($Script:TSEnvironment.Value('OSDTargetSystemDrive'))\ /Add-Driver /Driver:`"$($DriverINF.FullName)`""
+												# Validate driver injection
+												if ($ApplyDriverInvocation -eq 0) { Write-CMLogEntry -Value " - Successfully installed driver using dism.exe" }
+												else { Write-CMLogEntry -Value " - An error occurred while installing driver. Continuing with warning code: $($ApplyDriverInvocation). See DISM.log for more details" -Severity 2 }
+											}
+										}
+										else { New-ErrorRecord -Message " - An error occurred while enumerating driver paths, downloaded driver package does not contain any INF files" -ThrowError }
+									}
+									catch [System.Exception] { New-ErrorRecord -Message " - An error occurred while installing drivers. See DISM.log for more details" -ThrowError }
+								}
+								"Recurse" {
+									# Apply drivers recursively
+									$ApplyDriverInvocation = Invoke-Executable -FilePath "dism.exe" -Arguments "/Image:$($Script:TSEnvironment.Value('OSDTargetSystemDrive'))\ /Add-Driver /Driver:$($ContentLocation) /Recurse"
 									# Validate driver injection
-									if ($ApplyDriverInvocation -eq 0) { Write-CMLogEntry -Value " - Successfully installed driver using dism.exe" }
-									else { Write-CMLogEntry -Value " - An error occurred while installing driver. Continuing with warning code: $($ApplyDriverInvocation). See DISM.log for more details" -Severity 2 }
+									if ($ApplyDriverInvocation -eq 0) { Write-CMLogEntry -Value " - Successfully installed drivers recursively in driver package content location using dism.exe" }
+									else { Write-CMLogEntry -Value " - An error occurred while installing drivers. Continuing with warning code: $($ApplyDriverInvocation). See DISM.log for more details" -Severity 2 }
 								}
 							}
-							else { New-ErrorRecord -Message " - An error occurred while enumerating driver paths, downloaded driver package does not contain any INF files" -ThrowError }
 						}
-						catch [System.Exception] { New-ErrorRecord -Message " - An error occurred while installing drivers. See DISM.log for more details" -ThrowError }
-					}
-					"Recurse" {
-						# Apply drivers recursively
-						$ApplyDriverInvocation = Invoke-Executable -FilePath "dism.exe" -Arguments "/Image:$($Script:TSEnvironment.Value('OSDTargetSystemDrive'))\ /Add-Driver /Driver:$($ContentLocation) /Recurse"
-						# Validate driver injection
-						if ($ApplyDriverInvocation -eq 0) { Write-CMLogEntry -Value " - Successfully installed drivers recursively in driver package content location using dism.exe" }
-						else { Write-CMLogEntry -Value " - An error occurred while installing drivers. Continuing with warning code: $($ApplyDriverInvocation). See DISM.log for more details" -Severity 2 }
+						"BIOS" {
+							#ToDo
+						}
+					}#Filter
+				}#BareMetal
+				"OSUpgrade" {
+					# For OSUpgrade, don't attempt to install as this is handled by setup.exe when used together with OSDUpgradeStagedContent
+					Write-CMLogEntry -Value " - MDM package content downloaded successfully and located in: $($ContentLocation)"
+					Set-MDMTaskSequenceVariable -TSVariable "OSDUpgradeStagedContent" -TsValue $ContentLocation
+					Write-CMLogEntry -Value " - Successfully completed MDM package staging process"
+				}
+				"SystemUpdate" {
+					switch ($Filter) {
+						"Driver" {
+							# Apply drivers recursively from downloaded driver package location
+							Write-CMLogEntry -Value " - Driver package content downloaded successfully, attempting to apply drivers using pnputil.exe located in: $($ContentLocation)"
+							$ApplyDriverInvocation = Invoke-Executable -FilePath "powershell.exe" -Arguments "pnputil /add-driver $(Join-Path -Path $ContentLocation -ChildPath '*.inf') /subdirs /install | Out-File -FilePath (Join-Path -Path $($LogsDirectory) -ChildPath 'Install-Drivers.txt') -Force"
+							Write-CMLogEntry -Value " - Successfully installed drivers"
+						}
+						"BIOS" {
+							#ToDo
+						}
 					}
 				}
-			}
-			"OSUpgrade" {
-				# For OSUpgrade, don't attempt to install drivers as this is handled by setup.exe when used together with OSDUpgradeStagedContent
-				Write-CMLogEntry -Value " - Driver package content downloaded successfully and located in: $($ContentLocation)"
-				Set-MDMTaskSequenceVariable -TSVariable "OSDUpgradeStagedContent" -TsValue $ContentLocation
-				Write-CMLogEntry -Value " - Successfully completed driver package staging process"
-			}
-			"DriverUpdate" {
-				# Apply drivers recursively from downloaded driver package location
-				Write-CMLogEntry -Value " - Driver package content downloaded successfully, attempting to apply drivers using pnputil.exe located in: $($ContentLocation)"
-				$ApplyDriverInvocation = Invoke-Executable -FilePath "powershell.exe" -Arguments "pnputil /add-driver $(Join-Path -Path $ContentLocation -ChildPath '*.inf') /subdirs /install | Out-File -FilePath (Join-Path -Path $($LogsDirectory) -ChildPath 'Install-Drivers.txt') -Force"
-				Write-CMLogEntry -Value " - Successfully installed drivers"
-			}
-			"PreCache" {
-				# Driver package content downloaded successfully, log output and exit script
-				Write-CMLogEntry -Value " - Driver package content successfully downloaded and pre-cached to: $($ContentLocation)"
-			}
-		}
-		# Cleanup potential compressed driver package content
-		if ($null -ne $DriverPackageCompressedFile) {
-			switch -wildcard ($DriverPackageCompressedFile.Name) {
+				"PreCache" { Write-CMLogEntry -Value " - MDM package content successfully downloaded and pre-cached to: $($ContentLocation)" }
+			}#DeploymentType
+			# Cleanup potential compressed driver package content
+			switch -wildcard ($MDMPackageCompressedFile.Name) {
 				"*.wim" {
 					try {
 						# Attempt to dismount compressed driver package content WIM file
-						Write-CMLogEntry -Value " - Attempting to dismount driver package content WIM file: $($DriverPackageCompressedFile.Name) at $($DriverPackageMountLocation)"
-						Dismount-WindowsImage -Path $DriverPackageMountLocation -Discard -ErrorAction Stop
-						Write-CMLogEntry -Value " - Successfully dismounted driver package content WIM file"
+						Write-CMLogEntry -Value " - Attempting to dismount MDM package content WIM file: $($MDMPackageCompressedFile.Name) at $($MDMPackageMountLocation)"
+						Dismount-WindowsImage -Path $MDMPackageMountLocation -Discard -ErrorAction Stop
+						Write-CMLogEntry -Value " - Successfully dismounted MDM package content WIM file"
 					}
 					catch [System.Exception] {
-						New-ErrorRecord -Message " - Failed to dismount driver package content WIM file. Error message: $($_.Exception.Message)" -ThrowError
+						New-ErrorRecord -Message " - Failed to dismount MDM package content WIM file. Error message: $($_.Exception.Message)" -ThrowError
 					}
 				}
 			}
@@ -943,10 +947,10 @@ Begin {
 }#begin
 
 End {
-	if ($DebugMode.IsPresent) { Write-CMLogEntry -Value " - Apply Driver Package script has successfully completed in <debug mode>" }
+	if ($DebugMode.IsPresent) { Write-CMLogEntry -Value " - Apply MDM Package script has successfully completed in <debug mode>" }
 	# Reset OSDDownloadContent.exe dependant variables before next task sequence step
-	else { @("OSDDownloadDownloadPackages", "OSDDownloadDestinationLocationType", "OSDDownloadDestinationVariable", "OSDDownloadDestinationPath") | % { Set-MDMTaskSequenceVariable -TSVariable $_ } }
-	Write-CMLogEntry -Value "[InvokeMDMPackage]: Completed Apply Driver Package process"
+	else { @("OSDDownloadDownloadPackages", "OSDDownloadDestinationLocationType", "OSDDownloadDestinationVariable", "OSDDownloadDestinationPath") | ForEach-Object { Set-MDMTaskSequenceVariable -TSVariable $_ } }
+	Write-CMLogEntry -Value "[InvokeMDMPackage]: Completed Apply MDM Package process"
 	# Write final output to log file
 	Out-File -FilePath $LogFilePath -InputObject $script:LogEntries -Encoding default -NoClobber -Force
 }
