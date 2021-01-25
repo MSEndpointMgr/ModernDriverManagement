@@ -193,6 +193,7 @@
 	4.0.7 - (2020-10-27) - Updated with support for Windows 10 version 2009.
 	4.0.8 - (2020-12-09) - Added new functionality to be able to read a custom Application ID URI, if the default of https://ConfigMgrService is not defined on the ServerApp.
 	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
+	4.1.0 - (2021-01-12) - Enabled Debug parameter to work over CMG	
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -310,7 +311,19 @@ param(
 	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
 	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
 	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
-	[switch]$OSVersionFallback
+	[switch]$OSVersionFallback,
+	
+	[parameter(Mandatory = $false, ParameterSetName = "MDMExternalEndpoint", HelpMessage = "Specify MDMExternalEndpoint.")]
+	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[string]$MDMExternalEndpoint,
+	
+	[parameter(Mandatory = $false, ParameterSetName = "MDMClientID", HelpMessage = "Specify MDMClientID.")]
+	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[string]$MDMClientID,
+	
+	[parameter(Mandatory = $false, ParameterSetName = "MDMTenantName", HelpMessage = "Specify MDMTenantName.")]
+	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[string]$MDMTenantName
 )
 Begin {
 	# Load Microsoft.SMS.TSEnvironment COM object
@@ -659,6 +672,19 @@ Process {
 		
 		# Validate that if determined AdminService endpoint type is external, that additional required TS environment variables are available
 		if ($Script:AdminServiceEndpointType -like "External") {
+
+			if ($Script:PSCmdlet.ParameterSetName -like "Debug") {
+				if (-not([string]::IsNullOrEmpty($MDMExternalEndpoint))) {
+					$Script:ExternalEndpoint = $MDMExternalEndpoint
+				}
+				if (-not([string]::IsNullOrEmpty($MDMClientID))) {
+					$Script:ClientID = $MDMClientID
+				}
+				if (-not([string]::IsNullOrEmpty($MDMTenantName))) {
+					$Script:TenantName = $MDMTenantName
+				}
+			}	
+   
 			if ($Script:PSCmdLet.ParameterSetName -notlike "Debug") {
 				# Attempt to read TSEnvironment variable MDMExternalEndpoint
 				$Script:ExternalEndpoint = $TSEnvironment.Value("MDMExternalEndpoint")
@@ -728,9 +754,9 @@ Process {
 					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 				}
 			}
-			"Debug" {
-				$Script:AdminServiceEndpointType = "Internal"
-			}
+			#"Debug" {
+			#	$Script:AdminServiceEndpointType = "Internal"
+			#}
 			default {
 				Write-CMLogEntry -Value " - Attempting to determine AdminService endpoint type based on current active Management Point candidates and from ClientInfo class" -Severity 1
 				
