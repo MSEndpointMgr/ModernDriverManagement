@@ -193,6 +193,7 @@
 	4.0.7 - (2020-10-27) - Updated with support for Windows 10 version 2009.
 	4.0.8 - (2020-12-09) - Added new functionality to be able to read a custom Application ID URI, if the default of https://ConfigMgrService is not defined on the ServerApp.
 	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
+	4.1.0 - (2021-02-16) - Added support for new Windows 10 build version naming scheme, such as 20H2, 21H1 and so on.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -250,7 +251,7 @@ param(
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
 	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
-	[ValidateSet("2009", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
+	[ValidateSet("20H2", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
 	[string]$TargetOSVersion,
 	
 	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
@@ -960,7 +961,7 @@ Process {
 		)
 		switch (([System.Version]$InputObject).Build) {
 			"19042" {
-				$OSVersion = 2009
+				$OSVersion = 20H2
 			}
 			"19041" {
 				$OSVersion = 2004
