@@ -107,7 +107,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2020-09-16
+    Updated:     2021-02-16
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -193,6 +193,7 @@
 	4.0.7 - (2020-10-27) - Updated with support for Windows 10 version 2009.
 	4.0.8 - (2020-12-09) - Added new functionality to be able to read a custom Application ID URI, if the default of https://ConfigMgrService is not defined on the ServerApp.
 	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
+	4.1.0 - (2021-02-16) - Added support for new Windows 10 build version naming scheme, such as 20H2, 21H1 and so on.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -250,7 +251,7 @@ param(
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
 	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
-	[ValidateSet("2009", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
+	[ValidateSet("21H2", "21H1", "20H2", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
 	[string]$TargetOSVersion,
 	
 	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
@@ -294,7 +295,7 @@ param(
 	
 	[parameter(Mandatory = $false, ParameterSetName = "Debug", HelpMessage = "Override the automatically detected computer manufacturer when running in debug mode.")]
 	[ValidateNotNullOrEmpty()]
-	[ValidateSet("Hewlett-Packard", "HP", "Dell", "Lenovo", "Microsoft", "Fujitsu", "Panasonic", "Viglen", "AZW")]
+	[ValidateSet("HP", "Hewlett-Packard", "Dell", "Lenovo", "Microsoft", "Fujitsu", "Panasonic", "Viglen", "AZW")]
 	[string]$Manufacturer,
 	
 	[parameter(Mandatory = $false, ParameterSetName = "Debug", HelpMessage = "Override the automatically detected computer model when running in debug mode.")]
@@ -960,7 +961,7 @@ Process {
 		)
 		switch (([System.Version]$InputObject).Build) {
 			"19042" {
-				$OSVersion = 2009
+				$OSVersion = 20H2
 			}
 			"19041" {
 				$OSVersion = 2004
@@ -1278,7 +1279,7 @@ Process {
 			[ValidateNotNullOrEmpty()]
 			[System.Object[]]$DriverPackage,
 			
-			[parameter(Mandatory = $false, HelpMessage = "Set to True to check for drivers packages that matches earlier versions of Windows than what's detected from web service call.")]
+			[parameter(Mandatory = $false, HelpMessage = "Set to True to check for drivers packages that matches earlier versions of Windows than what's detected from admin service call.")]
 			[ValidateNotNullOrEmpty()]
 			[bool]$OSVersionFallback = $false
 		)
@@ -1348,7 +1349,7 @@ Process {
 			}
 			
 			# Add driver package OS version details to custom driver package details object
-			if ($DriverPackageItem.Name -match "^.*Windows.*(?<OSVersion>(\d){4}).*") {
+			if ($DriverPackageItem.Name -match "^.*Windows.*(?<OSVersion>(\d){4}).*|^.*Windows.*(?<OSVersion>(\d){2}(\D){1}(\d){1}).*") {
 				$DriverPackageDetails.OSVersion = $Matches.OSVersion
 			}
 			
@@ -1566,7 +1567,11 @@ Process {
 			[bool]$OSVersionFallback = $false
 		)
 		if ($OSVersionFallback -eq $true) {
-			if ([int]$DriverPackageInput -lt [int]$OSImageData.Version) {
+			# Attempt to convert 2XHX build version into digit, 2XH1 into 2X05 and 2XH2 into 2X10 for simplified version comparison
+			$DriverPackageInputConversion = $DriverPackageInput.Replace("H1", "05").Replace("H2", 10)
+			$OSImageDataVersionConversion = $OSImageData.Version.Replace("H1", "05").Replace("H2", 10)
+
+			if ([int]$DriverPackageInputConversion -lt [int]$OSImageDataVersionConversion) {
 				# OS version match found where driver package input was less than input from OSImageData version
 				Write-CMLogEntry -Value " - Matched operating system version: $($DriverPackageInput)" -Severity 1
 				return $true
