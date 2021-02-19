@@ -107,7 +107,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2021-02-16
+    Updated:     2021-02-19
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -194,6 +194,7 @@
 	4.0.8 - (2020-12-09) - Added new functionality to be able to read a custom Application ID URI, if the default of https://ConfigMgrService is not defined on the ServerApp.
 	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
 	4.1.0 - (2021-02-16) - Added support for new Windows 10 build version naming scheme, such as 20H2, 21H1 and so on.
+	4.1.1 - (2021-02-19) - Fixed an issue where the Get-OSBuild function used int instead of string data type for 20H2 OSVersion variable.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -961,7 +962,7 @@ Process {
 		)
 		switch (([System.Version]$InputObject).Build) {
 			"19042" {
-				$OSVersion = 20H2
+				$OSVersion = "20H2"
 			}
 			"19041" {
 				$OSVersion = 2004
