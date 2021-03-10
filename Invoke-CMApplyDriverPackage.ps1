@@ -926,31 +926,40 @@ Process {
 		return $PackageArray
 	}
 	
-	function Get-OSImageDetails {
-		switch ($Script:DeploymentMode) {
-			"DriverUpdate" {
-				$OSImageDetails = [PSCustomObject]@{
-					Architecture = Get-OSArchitecture -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty OSArchitecture)
-					Name = "Windows 10"
-					Version = Get-OSBuild -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty Version)
+	function Get-OSImageDetails {		
+		try {
+			switch ($Script:DeploymentMode) {
+				"DriverUpdate" {
+					$OSImageDetails = [PSCustomObject]@{
+						Architecture = Get-OSArchitecture -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty OSArchitecture)
+						Name = "Windows 10"
+						Version = Get-OSBuild -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty Version)
+					}
+				}
+				default {
+					$OSImageDetails = [PSCustomObject]@{
+						Architecture = $Script:TargetOSArchitecture
+						Name = "Windows 10"
+						Version = $Script:TargetOSVersion
+					}
 				}
 			}
-			default {
-				$OSImageDetails = [PSCustomObject]@{
-					Architecture = $Script:TargetOSArchitecture
-					Name = "Windows 10"
-					Version = $Script:TargetOSVersion
-				}
-			}
+			
+			# Handle output to log file for OS image details
+			Write-CMLogEntry -Value " - Target operating system name configured as: $($OSImageDetails.Name)" -Severity 1
+			Write-CMLogEntry -Value " - Target operating system architecture configured as: $($OSImageDetails.Architecture)" -Severity 1
+			Write-CMLogEntry -Value " - Target operating system version configured as: $($OSImageDetails.Version)" -Severity 1
+			
+			# Handle return value
+			return $OSImageDetails
 		}
-		
-		# Handle output to log file for OS image details
-		Write-CMLogEntry -Value " - Target operating system name configured as: $($OSImageDetails.Name)" -Severity 1
-		Write-CMLogEntry -Value " - Target operating system architecture configured as: $($OSImageDetails.Architecture)" -Severity 1
-		Write-CMLogEntry -Value " - Target operating system version configured as: $($OSImageDetails.Version)" -Severity 1
-		
-		# Handle return value
-		return $OSImageDetails
+		catch [System.Exception] {
+			Write-CMLogEntry -Value " - Failed to retrieve OSImageDetails, Error message: $($PSItem.Exception.Message)" -Severity 3
+			
+			# Throw terminating error
+			$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+			$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+		}
 	}
 	
 	function Get-OSBuild {
@@ -959,48 +968,58 @@ Process {
 			[ValidateNotNullOrEmpty()]
 			[string]$InputObject
 		)
-		switch (([System.Version]$InputObject).Build) {
-			"19042" {
-				$OSVersion = 20H2
+		try {
+			switch (([System.Version]$InputObject).Build) {
+				"19042" {
+					$OSVersion = "20H2"
+				}
+				"19041" {
+					$OSVersion = "2004"
+				}
+				"18363" {
+					$OSVersion = "1909"
+				}
+				"18362" {
+					$OSVersion = "1903"
+				}
+				"17763" {
+					$OSVersion = "1809"
+				}
+				"17134" {
+					$OSVersion = "1803"
+				}
+				"16299" {
+					$OSVersion = "1709"
+				}
+				"15063" {
+					$OSVersion = "1703"
+				}
+				"14393" {
+					$OSVersion = "1607"
+				}
+				default {
+					Write-CMLogEntry -Value " - Unable to translate OS version using input object: $($InputObject)" -Severity 3
+					Write-CMLogEntry -Value " - Unsupported OS version detected, please reach out to the developers of this script" -Severity 3
+					
+					# Throw terminating error
+					$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+					$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+				}
 			}
-			"19041" {
-				$OSVersion = 2004
-			}
-			"18363" {
-				$OSVersion = 1909
-			}
-			"18362" {
-				$OSVersion = 1903
-			}
-			"17763" {
-				$OSVersion = 1809
-			}
-			"17134" {
-				$OSVersion = 1803
-			}
-			"16299" {
-				$OSVersion = 1709
-			}
-			"15063" {
-				$OSVersion = 1703
-			}
-			"14393" {
-				$OSVersion = 1607
-			}
-			default {
-				Write-CMLogEntry -Value " - Unable to translate OS version using input object: $($InputObject)" -Severity 3
-				Write-CMLogEntry -Value " - Unsupported OS version detected, please reach out to the developers of this script" -Severity 3
-				
-				# Throw terminating error
-				$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-				$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-			}
+			
+			# Handle return value from function
+			return $OSVersion
+		}
+		catch [System.Exception] {
+			Write-CMLogEntry -Value " - Failed to retrieve OSBuild, Error message: $($PSItem.Exception.Message)" -Severity 3
+			
+			# Throw terminating error
+			$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+			$PSCmdlet.ThrowTerminatingError($ErrorRecord)
 		}
 		
-		# Handle return value from function
-		return $OSVersion
 	}
-	
+		
 	function Get-OSArchitecture {
 		param(
 			[parameter(Mandatory = $true, HelpMessage = "OS architecture data to be translated.")]
