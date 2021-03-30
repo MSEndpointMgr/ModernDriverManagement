@@ -83,6 +83,7 @@ Version history:
 4.0.9.4 - (2021-02-01) - changed other monikers to more generic descriptions
 4.0.9.5 - (2021-03-07) - added newer Windows builds to dynamic param OsBuildVersions
 4.1.0.3 - (2021-03-28) - multiple rewrites after fiddling and testing in pre-production, replaced detection of endpoints with mandatory Endpoint script parameter, added some params, added XML output for convenience
+4.1.0.4 - (2021-03-30) - corrected some typos, added alias property 'Name' to MDMPackage object, removed param type [string] of MDMPackage in Invoke-MDMPackageContent function as an object is expected
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
@@ -205,7 +206,7 @@ Process {
 }#process
 
 Begin {
-	[version]$ScriptVersion = "4.1.0.3"
+	[version]$ScriptVersion = "4.1.0.4"
 	$LogsDirectory = $env:TEMP
 	try {
 		$Script:TSEnvironment = New-Object -ComObject "Microsoft.SMS.TSEnvironment"
@@ -216,7 +217,6 @@ Begin {
 	$LogFileName = $LogFileName, $Filter, $Now, ".log" -join "_"
 	$LogFilePath = Join-Path -Path $LogsDirectory -ChildPath $LogFileName
 	[System.Collections.ArrayList]$script:LogEntries = @()
-	$script:LogEntries.add("=" * 74) | Out-Null
 	# Set script error preference variable
 	$ErrorActionPreference = "Stop"
 
@@ -473,9 +473,9 @@ Begin {
 		$MDMPackageList | ForEach-Object {
 			$childobj = $root.AppendChild($doc.CreateElement("MDMPackage"))
 			$childobj.SetAttribute("PackageID", $_.PackageID)
-			$childobj.SetAttribute("Name", $_.Name)
+			$childobj.SetAttribute("Name", $_.PackageName)
 			$childobj.SetAttribute("Description", $_.Description)
-			$childobj.SetAttribute("Manufacterer", $_.Manufacterer)
+			$childobj.SetAttribute("Manufacturer", $_.Manufacturer)
 		}
 		return $doc.outerxml
 	}
@@ -741,7 +741,7 @@ Begin {
 			$MDMPackageInfo = "MDM Package: $($MDMPackage.PackageID) - $($MDMPackage.Name)"
 			$CompDataInfo = "Computer Info: $($ComputerData.Manufacturer) $($ComputerData.Model) $($CompSKU) - $($ComputerData.OSName) $($ComputerData.Architecture) - $($ComputerData.OSVersion)"
 			if ($DetectionMethodResult) {
-				if ($DebugMode.IsPresent) { Write-MDMLogEntry -Value "Debug - $($MDMPackageInfo) MATCHED with $($CompDataInfo)." }
+				Write-MDMLogEntry -Value "Debug - $($MDMPackageInfo) MATCHED with $($CompDataInfo)."
 				$DriverPackageDetails = [PSCustomObject]@{
 					PackageName    = $MDMPackage.Name
 					PackageID      = $MDMPackage.PackageID
@@ -754,6 +754,8 @@ Begin {
 					OSVersion      = $OSVersion
 					Architecture   = $Architecture
 				}
+				$DriverPackageDetails | Add-Member -MemberType AliasProperty -Name Name -Value PackageName
+				$DriverPackageDetails | Add-Member -MemberType AliasProperty -Name ID -Value PackageID
 				$MDMPackagesList.Add($DriverPackageDetails) | Out-Null
 			}
 			else { if ($DebugMode.IsPresent) { Write-MDMLogEntry -Value "Debug - $($MDMPackageInfo) did NOT match with $($CompDataInfo)." -Severity 2 } }
@@ -765,10 +767,10 @@ Begin {
 	}
 	function Invoke-MDMPackageContent {
 		param(
-			[parameter(Mandatory)][string]$Package
+			[parameter(Mandatory)]$Package
 		)
 		Write-MDMLogEntry -Value "[MDMPackageDownload]: Starting MDM package download phase"
-		Write-MDMLogEntry -Value " - Attempting to download content files for matched MDM package: $($Package.PackageName)"
+		Write-MDMLogEntry -Value " - Attempting to download content files for matched MDM package: ($($Package.PackageID)) - $($Package.PackageName)"
 		# Depending on current deployment type, attempt to download MDM package content
 		#set default cmdlet params and reset value(s) if needed
 		$DestinationLocationType = "Custom"
@@ -792,7 +794,7 @@ Begin {
 			default { $CustomLocationPath = "%_SMSTSMDataPath%\MDMPackage" }
 		}#switch
 		#setting various TS variables
-		Set-MDMTaskSequenceVariable -TSVariable "OSDDownloadDownloadPackages" -TsValue $Package.ID
+		Set-MDMTaskSequenceVariable -TSVariable "OSDDownloadDownloadPackages" -TsValue $Package.PackageID
 		Set-MDMTaskSequenceVariable -TSVariable "OSDDownloadDestinationLocationType" -TsValue $DestinationLocationType
 		Set-MDMTaskSequenceVariable -TSVariable "OSDDownloadDestinationVariable" -TsValue $DestinationVariableName
 		switch ($DestinationLocationType) {
@@ -815,18 +817,17 @@ Begin {
 			# Reset SMSTSDownloadRetryCount to 5 after attempted download
 			Set-MDMTaskSequenceVariable -TSVariable "SMSTSDownloadRetryCount" -TsValue 5
 			# Match on return code
-			if ($ReturnCode -ne 0) { New-ErrorRecord -Message " - Failed to download package content with PackageID '$($Package.ID)'. Return code was: $($ReturnCode)" -ThrowError }
+			switch ($ReturnCode) {
+				0 {
+					$MDMPackageContentLocation = $Script:TSEnvironment.Value("OSDDriverPackage01")
+					Write-MDMLogEntry -Value " - MDM package content files was successfully downloaded to: $($MDMPackageContentLocation)"
+					# Handle return value for successful download of MDM package content files
+					return $MDMPackageContentLocation
+				}
+				default { New-ErrorRecord -Message " - MDM package content download process returned an unhandled exit code: $($ReturnCode)" -ThrowError }
+			}#switch
 		}
 		catch [System.Exception] { New-ErrorRecord -Message " - An error occurred while attempting to download package content. Error message: $($_.Exception.Message)" -ThrowError }
-		if ($ReturnCode -eq 0) {
-			$MDMPackageContentLocation = $Script:TSEnvironment.Value("OSDDriverPackage01")
-			Write-MDMLogEntry -Value " - MDM package content files was successfully downloaded to: $($MDMPackageContentLocation)"
-			# Handle return value for successful download of MDM package content files
-			return $MDMPackageContentLocation
-		}
-		else {
-			New-ErrorRecord -Message " - MDM package content download process returned an unhandled exit code: $($ReturnCode)" -ThrowError
-		}
 		Write-MDMLogEntry -Value "[MDMPackageDownload]: Completed MDM package download phase"
 	}
 	function Install-MDMPackageContent {
