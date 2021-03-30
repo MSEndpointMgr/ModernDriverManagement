@@ -109,7 +109,7 @@
     Created:     2017-03-27
     Updated:     2021-03-18
 	
-	Contributors: @CodyMathis123, @JamesMcwatty
+	Contributors: @CodyMathis123, @JamesMcwatty, @lintnotes
     
     Version history:
     1.0.0 - (2017-03-27) - Script created
@@ -195,6 +195,7 @@
 	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
 	4.1.0 - (2021-02-16) - Added support for new Windows 10 build version naming scheme, such as 20H2, 21H1 and so on.
 	4.1.1 - (2021-03-17) - Fixed issue with driver package detection logic where null value could cause a matched entry
+    4.1.2 - (2021-03-29) - Added Support for 1e Alternate content provider to detect package versions and wrapped OSVersion values in single quotes to resolve bug from 20H2 addition.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -401,9 +402,9 @@ Process {
 		
 		# Construct a hash-table for default parameter splatting
 		$SplatArgs = @{
-			FilePath = $FilePath
+			FilePath    = $FilePath
 			NoNewWindow = $true
-			Passthru = $true
+			Passthru    = $true
 			ErrorAction = "Stop"
 		}
 		
@@ -432,6 +433,11 @@ Process {
 			[ValidateNotNullOrEmpty()]
 			[ValidatePattern("^[A-Z0-9]{3}[A-F0-9]{5}$")]
 			[string]$PackageID,
+
+			[parameter(Mandatory = $false, ParameterSetName = "NoPath", HelpMessage = "Specify a PackageVersion that will be downloaded.")]
+			[Parameter(ParameterSetName = "CustomPath")]
+			[ValidateNotNullOrEmpty()]
+			[string]$PackageVersion = 1,
 			
 			[parameter(Mandatory = $true, ParameterSetName = "NoPath", HelpMessage = "Specify the download location type.")]
 			[Parameter(ParameterSetName = "CustomPath")]
@@ -448,10 +454,17 @@ Process {
 			[ValidateNotNullOrEmpty()]
 			[string]$CustomLocationPath
 		)
+        
+		# Detect if 1E TSEnv2 Exists and Set _SMSTSSourceVersion for Alternate Content Provider Bug.
+		If ((Test-Path -Path X:\sms\bin\x64\TSEnv2.exe) -or (Test-Path -Path X:\sms\bin\x86\TSEnv2.exe)) {
+			Write-CMLogEntry -Value " - Setting task sequence variable _SMSTSSourceVersion to: $($PackageID)=$($PackageVersion) via 1E TSEnv2" -Severity 1
+			$ReturnCode = Invoke-Expression "tsenv2 set _SMSTSSourceVersion$($PackageId)=$($PackageVersion)"
+		}
+
 		# Set OSDDownloadDownloadPackages
 		Write-CMLogEntry -Value " - Setting task sequence variable OSDDownloadDownloadPackages to: $($PackageID)" -Severity 1
-		$TSEnvironment.Value("OSDDownloadDownloadPackages") = "$($PackageID)"
-		
+		$TSEnvironment.Value("OSDDownloadDownloadPackages") = "$($PackageID)"   
+        		
 		# Set OSDDownloadDestinationLocationType
 		Write-CMLogEntry -Value " - Setting task sequence variable OSDDownloadDestinationLocationType to: $($DestinationLocationType)" -Severity 1
 		$TSEnvironment.Value("OSDDownloadDestinationLocationType") = "$($DestinationLocationType)"
@@ -932,15 +945,15 @@ Process {
 			"DriverUpdate" {
 				$OSImageDetails = [PSCustomObject]@{
 					Architecture = Get-OSArchitecture -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty OSArchitecture)
-					Name = "Windows 10"
-					Version = Get-OSBuild -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty Version)
+					Name         = "Windows 10"
+					Version      = Get-OSBuild -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty Version)
 				}
 			}
 			default {
 				$OSImageDetails = [PSCustomObject]@{
 					Architecture = $Script:TargetOSArchitecture
-					Name = "Windows 10"
-					Version = $Script:TargetOSVersion
+					Name         = "Windows 10"
+					Version      = $Script:TargetOSVersion
 				}
 			}
 		}
@@ -962,31 +975,31 @@ Process {
 		)
 		switch (([System.Version]$InputObject).Build) {
 			"19042" {
-				$OSVersion = 20H2
+				$OSVersion = '20H2'
 			}
 			"19041" {
-				$OSVersion = 2004
+				$OSVersion = '2004'
 			}
 			"18363" {
-				$OSVersion = 1909
+				$OSVersion = '1909'
 			}
 			"18362" {
-				$OSVersion = 1903
+				$OSVersion = '1903'
 			}
 			"17763" {
-				$OSVersion = 1809
+				$OSVersion = '1809'
 			}
 			"17134" {
-				$OSVersion = 1803
+				$OSVersion = '1803'
 			}
 			"16299" {
-				$OSVersion = 1709
+				$OSVersion = '1709'
 			}
 			"15063" {
-				$OSVersion = 1703
+				$OSVersion = '1703'
 			}
 			"14393" {
-				$OSVersion = 1607
+				$OSVersion = '1607'
 			}
 			default {
 				Write-CMLogEntry -Value " - Unable to translate OS version using input object: $($InputObject)" -Severity 3
@@ -1095,9 +1108,9 @@ Process {
 		# Create a custom object for computer details gathered from local WMI
 		$ComputerDetails = [PSCustomObject]@{
 			Manufacturer = $null
-			Model = $null
-			SystemSKU = $null
-			FallbackSKU = $null
+			Model        = $null
+			SystemSKU    = $null
+			FallbackSKU  = $null
 		}
 		
 		# Gather computer details based upon specific computer manufacturer
@@ -1111,17 +1124,17 @@ Process {
 			"*HP*" {
 				$ComputerDetails.Manufacturer = "HP"
 				$ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
-				$ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace "root\WMI").BaseBoardProduct.Trim()
+				$ComputerDetails.SystemSKU = (Get-CimInstance -ClassName "MS_SystemInformation" -Namespace "root\WMI").BaseBoardProduct.Trim()
 			}
 			"*Hewlett-Packard*" {
 				$ComputerDetails.Manufacturer = "HP"
 				$ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
-				$ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace "root\WMI").BaseBoardProduct.Trim()
+				$ComputerDetails.SystemSKU = (Get-CimInstance -ClassName "MS_SystemInformation" -Namespace "root\WMI").BaseBoardProduct.Trim()
 			}
 			"*Dell*" {
 				$ComputerDetails.Manufacturer = "Dell"
 				$ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
-				$ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace "root\WMI").SystemSku.Trim()
+				$ComputerDetails.SystemSKU = (Get-CimInstance -ClassName "MS_SystemInformation" -Namespace "root\WMI").SystemSku.Trim()
 				[string]$OEMString = Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty OEMStringArray
 				$ComputerDetails.FallbackSKU = [regex]::Matches($OEMString, '\[\S*]')[0].Value.TrimStart("[").TrimEnd("]")
 			}
@@ -1133,7 +1146,7 @@ Process {
 			"*Panasonic*" {
 				$ComputerDetails.Manufacturer = "Panasonic Corporation"
 				$ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
-				$ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace "root\WMI").BaseBoardProduct.Trim()
+				$ComputerDetails.SystemSKU = (Get-CimInstance -ClassName "MS_SystemInformation" -Namespace "root\WMI").BaseBoardProduct.Trim()
 			}
 			"*Viglen*" {
 				$ComputerDetails.Manufacturer = "Viglen"
@@ -1143,7 +1156,7 @@ Process {
 			"*AZW*" {
 				$ComputerDetails.Manufacturer = "AZW"
 				$ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
-				$ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace root\WMI).BaseBoardProduct.Trim()
+				$ComputerDetails.SystemSKU = (Get-CimInstance -ClassName "MS_SystemInformation" -Namespace root\WMI).BaseBoardProduct.Trim()
 			}
 			"*Fujitsu*" {
 				$ComputerDetails.Manufacturer = "Fujitsu"
@@ -1229,7 +1242,7 @@ Process {
 		)
 		# Construct custom object for computer details validation
 		$Script:ComputerDetection = [PSCustomObject]@{
-			"ModelDetected" = $false
+			"ModelDetected"     = $false
 			"SystemSKUDetected" = $false
 		}
 		
@@ -1308,16 +1321,17 @@ Process {
 		foreach ($DriverPackageItem in $DriverPackages) {
 			# Construct custom object to hold values for current driver package properties used for matching with current computer details
 			$DriverPackageDetails = [PSCustomObject]@{
-				PackageName = $DriverPackageItem.Name
-				PackageID = $DriverPackageItem.PackageID
-				PackageVersion = $DriverPackageItem.Version
-				DateCreated = $DriverPackageItem.SourceDate
-				Manufacturer = $DriverPackageItem.Manufacturer
-				Model = $null
-				SystemSKU = $DriverPackageItem.Description.Split(":").Replace("(", "").Replace(")", "")[1]
-				OSName = $null
-				OSVersion = $null
-				Architecture = $null
+				PackageName          = $DriverPackageItem.Name
+				PackageID            = $DriverPackageItem.PackageID
+				PackageVersion       = $DriverPackageItem.Version
+				StoredPackageVersion = $DriverPackageItem.StoredPkgVersion
+				DateCreated          = $DriverPackageItem.SourceDate
+				Manufacturer         = $DriverPackageItem.Manufacturer
+				Model                = $null
+				SystemSKU            = $DriverPackageItem.Description.Split(":").Replace("(", "").Replace(")", "")[1]
+				OSName               = $null
+				OSVersion            = $null
+				Architecture         = $null
 			}
 			
 			# Add driver package model details depending on manufacturer to custom driver package details object
@@ -1486,11 +1500,11 @@ Process {
 					foreach ($DriverPackageItem in $FallbackDriverPackages) {
 						# Construct custom object to hold values for current driver package properties used for matching with current computer details
 						$DriverPackageDetails = [PSCustomObject]@{
-							PackageName = $DriverPackageItem.PackageName
-							PackageID = $DriverPackageItem.PackageID
-							DateCreated = $DriverPackageItem.PackageCreated
+							PackageName  = $DriverPackageItem.PackageName
+							PackageID    = $DriverPackageItem.PackageID
+							DateCreated  = $DriverPackageItem.PackageCreated
 							Manufacturer = $DriverPackageItem.PackageManufacturer
-							OSName = $null
+							OSName       = $null
 							Architecture = $null
 						}
 						
@@ -1694,7 +1708,7 @@ Process {
 		
 		# Construct custom object for return value
 		$SystemSKUDetectionResult = [PSCustomObject]@{
-			Detected = $null
+			Detected       = $null
 			SystemSKUValue = $null
 		}
 		
@@ -1909,15 +1923,15 @@ Process {
 					}
 					
 					if (Test-Path -Path $Script:PreCachePath) {
-						$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "Custom" -DestinationVariableName "OSDDriverPackage" -CustomLocationPath "$($Script:PreCachePath)"
+						$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -PackageVersion $($DriverPackageList[0].StoredPackageVersion) -DestinationLocationType "Custom" -DestinationVariableName "OSDDriverPackage" -CustomLocationPath "$($Script:PreCachePath)"
 					}
 				}
 				else {
-					$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "CCMCache" -DestinationVariableName "OSDDriverPackage"
+					$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -PackageVersion $($DriverPackageList[0].StoredPackageVersion) -DestinationLocationType "CCMCache" -DestinationVariableName "OSDDriverPackage"
 				}
 			}
 			default {
-				$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -DestinationLocationType "Custom" -DestinationVariableName "OSDDriverPackage" -CustomLocationPath "%_SMSTSMDataPath%\DriverPackage"
+				$DownloadInvocation = Invoke-CMDownloadContent -PackageID $DriverPackageList[0].PackageID -PackageVersion $($DriverPackageList[0].StoredPackageVersion) -DestinationLocationType "Custom" -DestinationVariableName "OSDDriverPackage" -CustomLocationPath "%_SMSTSMDataPath%\DriverPackage"
 			}
 		}
 		
@@ -2022,7 +2036,7 @@ Process {
 						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file" -Severity 1
 						Write-CMLogEntry -Value " - Copying items from mount directory" -Severity 1
-						Get-ChildItem -Path $DriverPackageMountLocation | Copy-Item -destination $ContentLocation -Recurse -container
+						Get-ChildItem -Path $DriverPackageMountLocation | Copy-Item -Destination $ContentLocation -Recurse -Container
 					}
 					catch [System.Exception] {
 						Write-CMLogEntry -Value " - Failed to mount driver package content WIM file. Error message: $($_.Exception.Message)" -Severity 3
@@ -2083,7 +2097,7 @@ Process {
 						Write-CMLogEntry -Value " - DriverInstallMode is currently set to: $($DriverInstallMode)" -Severity 1
 						
 						# Apply drivers recursively
-						$ApplyDriverInvocation = Invoke-Executable -FilePath "dism.exe" -Arguments "/Image:$($TSEnvironment.Value('OSDTargetSystemDrive'))\ /Add-Driver /Driver:$($ContentLocation) /Recurse"
+						$ApplyDriverInvocation = Invoke-Executable -FilePath "dism.exe" -Arguments "/Image:$($TSEnvironment.Value('OSDTargetSystemDrive'))\ /Add-Driver /Driver:$($ContentLocation) /Recurse /LogPath:$((Join-Path -Path $($LogsDirectory) -ChildPath 'Install-Drivers.log'))"
 						
 						# Validate driver injection
 						if ($ApplyDriverInvocation -eq 0) {
@@ -2107,7 +2121,7 @@ Process {
 			"DriverUpdate" {
 				# Apply drivers recursively from downloaded driver package location
 				Write-CMLogEntry -Value " - Driver package content downloaded successfully, attempting to apply drivers using pnputil.exe located in: $($ContentLocation)" -Severity 1
-				$ApplyDriverInvocation = Invoke-Executable -FilePath "powershell.exe" -Arguments "pnputil /add-driver $(Join-Path -Path $ContentLocation -ChildPath '*.inf') /subdirs /install | Out-File -FilePath (Join-Path -Path $($LogsDirectory) -ChildPath 'Install-Drivers.txt') -Force"
+				$ApplyDriverInvocation = Invoke-Executable -FilePath "powershell.exe" -Arguments "pnputil /add-driver $(Join-Path -Path $ContentLocation -ChildPath '*.inf') /subdirs /install | Out-File -FilePath (Join-Path -Path $($LogsDirectory) -ChildPath 'Install-Drivers.log') -Force"
 				Write-CMLogEntry -Value " - Successfully installed drivers" -Severity 1
 			}
 			"PreCache" {
