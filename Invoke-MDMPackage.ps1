@@ -812,14 +812,14 @@ Begin {
 				$InstallMode = "FullOS"
 				$FilePath = Join-Path -Path $env:windir -ChildPath "CCM\OSDDownloadContent.exe"
 			}
-			Write-MDMLogEntry -Value " - Starting package content download process in ($($InstallMode)), this might take some time"
+			Write-MDMLogEntry -Value " - Starting package content download process in [$($InstallMode)], this might take some time"
 			$ReturnCode = Invoke-Executable -FilePath $FilePath
 			# Reset SMSTSDownloadRetryCount to 5 after attempted download
 			Set-MDMTaskSequenceVariable -TSVariable "SMSTSDownloadRetryCount" -TsValue 5
 			# Match on return code
 			switch ($ReturnCode) {
 				0 {
-					$MDMPackageContentLocation = $Script:TSEnvironment.Value("OSDDriverPackage01")
+					$MDMPackageContentLocation = $Script:TSEnvironment.Value("OSDMDMPackage01")
 					Write-MDMLogEntry -Value " - MDM package content files was successfully downloaded to: $($MDMPackageContentLocation)"
 					# Handle return value for successful download of MDM package content files
 					return $MDMPackageContentLocation
