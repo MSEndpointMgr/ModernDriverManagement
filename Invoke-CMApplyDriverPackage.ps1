@@ -107,7 +107,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2021-03-18
+    Updated:     2021-04-12
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -195,6 +195,7 @@
 	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
 	4.1.0 - (2021-02-16) - Added support for new Windows 10 build version naming scheme, such as 20H2, 21H1 and so on.
 	4.1.1 - (2021-03-17) - Fixed issue with driver package detection logic where null value could cause a matched entry
+	4.1.2 - (2021-04-12) - Fixed an issue in the Get-OSBuild function where 20H2 was not defined as a string. Also added a fix to skip compressed archive extraction if running in PreCache deployment mode.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -962,7 +963,7 @@ Process {
 		)
 		switch (([System.Version]$InputObject).Build) {
 			"19042" {
-				$OSVersion = 20H2
+				$OSVersion = "20H2"
 			}
 			"19041" {
 				$OSVersion = 2004
@@ -1948,92 +1949,99 @@ Process {
 		$DriverPackageCompressedFile = Get-ChildItem -Path $ContentLocation -Filter "DriverPackage.*"
 		if ($DriverPackageCompressedFile -ne $null) {
 			Write-CMLogEntry -Value " - Downloaded driver package content contains a compressed archive with driver content" -Severity 1
-			
-			# Detect if compressed format is Windows native zip or 7-Zip exe
-			switch -wildcard ($DriverPackageCompressedFile.Name) {
-				"*.zip" {
-					try {
-						# Expand compressed driver package archive file
-						Write-CMLogEntry -Value " - Attempting to decompress driver package content file: $($DriverPackageCompressedFile.Name)" -Severity 1
-						Write-CMLogEntry -Value " - Decompression destination: $($ContentLocation)" -Severity 1
-						Expand-Archive -Path $DriverPackageCompressedFile.FullName -DestinationPath $ContentLocation -Force -ErrorAction Stop
-						Write-CMLogEntry -Value " - Successfully decompressed driver package content file" -Severity 1
-					}
-					catch [System.Exception] {
-						Write-CMLogEntry -Value " - Failed to decompress driver package content file. Error message: $($_.Exception.Message)" -Severity 3
-						
-						# Throw terminating error
-						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-					}
-					
-					try {
-						# Remove compressed driver package archive file
-						if (Test-Path -Path $DriverPackageCompressedFile.FullName) {
-							Remove-Item -Path $DriverPackageCompressedFile.FullName -Force -ErrorAction Stop
-						}
-					}
-					catch [System.Exception] {
-						Write-CMLogEntry -Value " - Failed to remove compressed driver package content file after decompression. Error message: $($_.Exception.Message)" -Severity 3
-						
-						# Throw terminating error
-						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-					}
+
+			switch ($Script:DeploymentMode) {
+				"PreCache" {
+					Write-CMLogEntry -Value "Skipping compressed archive extraction due to precache deployment mode selected" -Severity 1
 				}
-				"*.exe" {
-					Write-CMLogEntry -Value " - Attempting to decompress 7-Zip driver package content file: $($DriverPackageCompressedFile.Name)" -Severity 1
-					Write-CMLogEntry -Value " - Decompression destination: $($ContentLocation)" -Severity 1
-					$ReturnCode = Invoke-Executable -FilePath $DriverPackageCompressedFile.FullName -Arguments "-o`"$($ContentLocation)`" -y"
-					
-					# Validate 7-Zip driver extraction
-					if ($ReturnCode -eq 0) {
-						Write-CMLogEntry -Value " - Successfully decompressed 7-Zip driver package content file" -Severity 1
-					}
-					else {
-						Write-CMLogEntry -Value " - An error occurred while decompressing 7-Zip driver package content file. Return code from self-extracing executable: $($ReturnCode)" -Severity 3
-						
-						# Throw terminating error
-						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-					}
-				}
-				"*.wim" {
-					try {
-						# Create mount location for driver package WIM file
-						$DriverPackageMountLocation = Join-Path -Path $ContentLocation -ChildPath "Mount"
-						if (-not (Test-Path -Path $DriverPackageMountLocation)) {
-							Write-CMLogEntry -Value " - Creating mount location directory: $($DriverPackageMountLocation)" -Severity 1
-							New-Item -Path $DriverPackageMountLocation -ItemType "Directory" -Force | Out-Null
+				default {
+					# Detect if compressed format is Windows native zip or 7-Zip exe
+					switch -wildcard ($DriverPackageCompressedFile.Name) {
+						"*.zip" {
+							try {
+								# Expand compressed driver package archive file
+								Write-CMLogEntry -Value " - Attempting to decompress driver package content file: $($DriverPackageCompressedFile.Name)" -Severity 1
+								Write-CMLogEntry -Value " - Decompression destination: $($ContentLocation)" -Severity 1
+								Expand-Archive -Path $DriverPackageCompressedFile.FullName -DestinationPath $ContentLocation -Force -ErrorAction Stop
+								Write-CMLogEntry -Value " - Successfully decompressed driver package content file" -Severity 1
+							}
+							catch [System.Exception] {
+								Write-CMLogEntry -Value " - Failed to decompress driver package content file. Error message: $($_.Exception.Message)" -Severity 3
+								
+								# Throw terminating error
+								$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+								$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+							}
+							
+							try {
+								# Remove compressed driver package archive file
+								if (Test-Path -Path $DriverPackageCompressedFile.FullName) {
+									Remove-Item -Path $DriverPackageCompressedFile.FullName -Force -ErrorAction Stop
+								}
+							}
+							catch [System.Exception] {
+								Write-CMLogEntry -Value " - Failed to remove compressed driver package content file after decompression. Error message: $($_.Exception.Message)" -Severity 3
+								
+								# Throw terminating error
+								$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+								$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+							}
 						}
-					}
-					catch [System.Exception] {
-						Write-CMLogEntry -Value " - Failed to create mount location for WIM file. Error message: $($_.Exception.Message)" -Severity 3
-						
-						# Throw terminating error
-						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
-					}
-					
-					try {
-						# Expand compressed driver package WIM file
-						Write-CMLogEntry -Value " - Attempting to mount driver package content WIM file: $($DriverPackageCompressedFile.Name)" -Severity 1
-						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
-						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ErrorAction Stop
-						Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file" -Severity 1
-						Write-CMLogEntry -Value " - Copying items from mount directory" -Severity 1
-						Get-ChildItem -Path $DriverPackageMountLocation | Copy-Item -destination $ContentLocation -Recurse -container
-					}
-					catch [System.Exception] {
-						Write-CMLogEntry -Value " - Failed to mount driver package content WIM file. Error message: $($_.Exception.Message)" -Severity 3
-						
-						# Throw terminating error
-						$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
-						$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+						"*.exe" {
+							Write-CMLogEntry -Value " - Attempting to decompress 7-Zip driver package content file: $($DriverPackageCompressedFile.Name)" -Severity 1
+							Write-CMLogEntry -Value " - Decompression destination: $($ContentLocation)" -Severity 1
+							$ReturnCode = Invoke-Executable -FilePath $DriverPackageCompressedFile.FullName -Arguments "-o`"$($ContentLocation)`" -y"
+							
+							# Validate 7-Zip driver extraction
+							if ($ReturnCode -eq 0) {
+								Write-CMLogEntry -Value " - Successfully decompressed 7-Zip driver package content file" -Severity 1
+							}
+							else {
+								Write-CMLogEntry -Value " - An error occurred while decompressing 7-Zip driver package content file. Return code from self-extracing executable: $($ReturnCode)" -Severity 3
+								
+								# Throw terminating error
+								$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+								$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+							}
+						}
+						"*.wim" {
+							try {
+								# Create mount location for driver package WIM file
+								$DriverPackageMountLocation = Join-Path -Path $ContentLocation -ChildPath "Mount"
+								if (-not (Test-Path -Path $DriverPackageMountLocation)) {
+									Write-CMLogEntry -Value " - Creating mount location directory: $($DriverPackageMountLocation)" -Severity 1
+									New-Item -Path $DriverPackageMountLocation -ItemType "Directory" -Force | Out-Null
+								}
+							}
+							catch [System.Exception] {
+								Write-CMLogEntry -Value " - Failed to create mount location for WIM file. Error message: $($_.Exception.Message)" -Severity 3
+								
+								# Throw terminating error
+								$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+								$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+							}
+							
+							try {
+								# Expand compressed driver package WIM file
+								Write-CMLogEntry -Value " - Attempting to mount driver package content WIM file: $($DriverPackageCompressedFile.Name)" -Severity 1
+								Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
+								Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ErrorAction Stop
+								Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file" -Severity 1
+								Write-CMLogEntry -Value " - Copying items from mount directory" -Severity 1
+								Get-ChildItem -Path $DriverPackageMountLocation | Copy-Item -destination $ContentLocation -Recurse -container
+							}
+							catch [System.Exception] {
+								Write-CMLogEntry -Value " - Failed to mount driver package content WIM file. Error message: $($_.Exception.Message)" -Severity 3
+								
+								# Throw terminating error
+								$ErrorRecord = New-TerminatingErrorRecord -Message ([string]::Empty)
+								$PSCmdlet.ThrowTerminatingError($ErrorRecord)
+							}
+						}
 					}
 				}
 			}
-		}
+		}		
 		
 		switch ($Script:DeploymentMode) {
 			"BareMetal" {
