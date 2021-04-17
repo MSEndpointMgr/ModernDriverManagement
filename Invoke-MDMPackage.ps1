@@ -35,7 +35,7 @@ Override the automatically detected System SKU (Stock Keeping Unit).
 Define a filter used when calling ConfigMgr WebService to only return packages matching the filter: Driver (default) or BIOS.
 .PARAMETER OperationalMode
 Choose Production (default) or Pilot to only return packages from the ConfigMgr webservice matching the selected operational mode.
-.PARAMETER InstallMode
+.PARAMETER DriverInstallMode
 Specify to install drivers using DISM.exe with recurse option (default) or spawn a new process for each driver.
 .PARAMETER QuerySource
 Specify to retrieve MDM packages using an XML file or the ConfigMgr webservice (default) as query source.
@@ -84,6 +84,8 @@ Version history:
 4.0.9.5 - (2021-03-07) - added newer Windows builds to dynamic param OsBuildVersions
 4.1.0.3 - (2021-03-28) - multiple rewrites after fiddling and testing in pre-production, replaced detection of endpoints with mandatory Endpoint script parameter, added some params, added XML output for convenience
 4.1.0.4 - (2021-03-30) - corrected some typos, added alias property 'Name' to MDMPackage object, removed param type [string] of MDMPackage in Invoke-MDMPackageContent function as an object is expected
+4.1.0.5 - (2021-04-07) - added check for when MDM package contains unexpected file(s) not eligible for extraction nor installation
+4.1.0.6 - (2021-04-17) - removed filter MDMPackage.* in Install-MDMPackageContent function, corrected yet another type of parameter DriverInstallMode in same function
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
@@ -122,7 +124,7 @@ param (
 	[string]$OperationalMode = "Production",
 	[parameter(HelpMessage = "Specify whether to invoke DISM.exe with Recurse (= default) option or spawn a Single new process for each driver.")]
 	[ValidateSet("Single", "Recurse")]
-	[string]$InstallMode = "Recurse",
+	[string]$DriverInstallMode = "Recurse",
 	[parameter(HelpMessage = "Specify the source to query for selection of packages to apply: XML or WebService (= default)")]
 	[ValidateSet("XML", "WebService")]
 	[string]$QuerySource = "WebService",
@@ -206,7 +208,7 @@ Process {
 }#process
 
 Begin {
-	[version]$ScriptVersion = "4.1.0.4"
+	[version]$ScriptVersion = "4.1.0.6"
 	$LogsDirectory = $env:TEMP
 	try {
 		$Script:TSEnvironment = New-Object -ComObject "Microsoft.SMS.TSEnvironment"
@@ -741,7 +743,7 @@ Begin {
 			$MDMPackageInfo = "MDM Package: $($MDMPackage.PackageID) - $($MDMPackage.Name)"
 			$CompDataInfo = "Computer Info: $($ComputerData.Manufacturer) $($ComputerData.Model) $($CompSKU) - $($ComputerData.OSName) $($ComputerData.Architecture) - $($ComputerData.OSVersion)"
 			if ($DetectionMethodResult) {
-				Write-MDMLogEntry -Value "Debug - $($MDMPackageInfo) MATCHED with $($CompDataInfo)."
+				Write-MDMLogEntry -Value "$($MDMPackageInfo) MATCHED with $($CompDataInfo)."
 				$DriverPackageDetails = [PSCustomObject]@{
 					PackageName    = $MDMPackage.Name
 					PackageID      = $MDMPackage.PackageID
@@ -838,7 +840,7 @@ Begin {
 		)
 		Write-MDMLogEntry -Value "[MDMPackageInstall]: Starting MDM package install phase"
 		# Detect if downloaded package content is a compressed archive that needs to be extracted before installation
-		$MDMPackageCompressedFile = Get-ChildItem -Path $ContentLocation -Filter "MDMPackage.*"
+		$MDMPackageCompressedFile = Get-ChildItem -Path $ContentLocation -File #-Filter "MDMPackage.*"
 		if ($null -ne $MDMPackageCompressedFile) {
 			Write-MDMLogEntry -Value " - Downloaded package content contains a compressed archive"
 			# Detect if compressed format is Windows native zip or 7-Zip exe
@@ -880,6 +882,7 @@ Begin {
 					}
 					catch [System.Exception] { New-ErrorRecord -Message " - Failed to mount package content WIM file. Error message: $($_.Exception.Message)" -ThrowError }
 				}
+				default { Write-MDMLogEntry -Value " - Unknown extension $($MDMPackageCompressedFile.Extension) found, unable to decompress." -Severity 2 }
 			}#MDMPackageCompressedFile.Name
 			switch ($DeploymentType) {
 				"BareMetal" {
@@ -958,6 +961,7 @@ Begin {
 				}
 			}
 		}
+		else { Write-MDMLogEntry -Value " - No MDM packages found under $($ContentLocation) for extraction." -Severity 2 }
 	}
 }#begin
 
