@@ -37,6 +37,8 @@ Define a filter used when calling ConfigMgr WebService to only return packages m
 Choose Production (default) or Pilot to only return packages from the ConfigMgr webservice matching the selected operational mode.
 .PARAMETER DriverInstallMode
 Specify to install drivers using DISM.exe with recurse option (default) or spawn a new process for each driver.
+.PARAMETER InstallDevices
+Specify which devices need to have the OEM driver from the MDM package installed: All or InError (default).
 .PARAMETER QuerySource
 Specify to retrieve MDM packages using an XML file or the ConfigMgr webservice (default) as query source.
 .PARAMETER UseFallbackPackage
@@ -85,7 +87,9 @@ Version history:
 4.1.0.3 - (2021-03-28) - multiple rewrites after fiddling and testing in pre-production, replaced detection of endpoints with mandatory Endpoint script parameter, added some params, added XML output for convenience
 4.1.0.4 - (2021-03-30) - corrected some typos, added alias property 'Name' to MDMPackage object, removed param type [string] of MDMPackage in Invoke-MDMPackageContent function as an object is expected
 4.1.0.5 - (2021-04-07) - added check for when MDM package contains unexpected file(s) not eligible for extraction nor installation
-4.1.0.6 - (2021-04-17) - removed filter MDMPackage.* in Install-MDMPackageContent function, corrected yet another type of parameter DriverInstallMode in same function
+4.1.0.6 - (2021-04-16) - removed filter MDMPackage.* in Install-MDMPackageContent function, corrected yet another type of parameter DriverInstallMode in same function
+4.1.1.0 - (2021-04-19) - added InstallDevices parameter for selecting which devices need to have a driver installed
+4.1.1.3 - (2021-04-26) - rewrote detection of SKU and Windows build denoted in MDM package Description field as a poor man's alternative to builtin DriverPackage information fields
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param (
@@ -125,6 +129,9 @@ param (
 	[parameter(HelpMessage = "Specify whether to invoke DISM.exe with Recurse (= default) option or spawn a Single new process for each driver.")]
 	[ValidateSet("Single", "Recurse")]
 	[string]$DriverInstallMode = "Recurse",
+	[parameter(HelpMessage = "Specify which devices need to have the OEM driver from the MDM package installed: All or InError (default).")]
+	[ValidateSet("All", "InError")]
+	[string]$InstallDevices = "InError",
 	[parameter(HelpMessage = "Specify the source to query for selection of packages to apply: XML or WebService (= default)")]
 	[ValidateSet("XML", "WebService")]
 	[string]$QuerySource = "WebService",
@@ -208,7 +215,7 @@ Process {
 }#process
 
 Begin {
-	[version]$ScriptVersion = "4.1.0.6"
+	[version]$ScriptVersion = "4.1.1.3"
 	$LogsDirectory = $env:TEMP
 	try {
 		$Script:TSEnvironment = New-Object -ComObject "Microsoft.SMS.TSEnvironment"
@@ -437,6 +444,7 @@ Begin {
 		if (-not ([System.String]::IsNullOrEmpty($Arguments))) { $SplatArgs.Add("ArgumentList", $Arguments) }
 		# Invoke executable and wait for process to exit
 		try {
+			Write-MDMLogEntry -Value "Invoking commandline: $($FilePath) $($Arguments), waiting for process to return handle..."
 			$Invocation = Start-Process @SplatArgs
 			$Handle = $Invocation.Handle
 			$Invocation.WaitForExit()
@@ -717,26 +725,31 @@ Begin {
 				"^.*Windows.*(?<OSName>(10)).*" { $OSName = -join @("Windows ", $Matches.OSName) }
 				"^.*Windows.*(?<OSVersion>(\d){4}).*" { $OSVersion = $Matches.OSVersion }
 			}
-			# retrieve SystemSKU from non-empty description field of MDM package
-			try { $SystemSKU = ([string]$MDMPackage.Description -Replace "\(|\)", "").Split(":")[1] }
-			catch { $SystemSKU = "" }
+			# retrieve SystemSKU and System Build from non-empty description field of MDM package
+			$DescriptionValues = @($MDMPackage.Description -split "(?=\()")
+			[regex]$SplitValues = "\s|:|\||,|;|-"
+			switch -regex ($DescriptionValues) {
+				"(?<=\(Models:\s*)(?'SKU'.*?)(?=\))" { $SystemSKU = @($Matches.SKU -split $SplitValues) }
+				"(?<=\(Builds:\s*)(?'Build'.*?)(?=\))" { $SystemBuild = @($Matches.Build -split $SplitValues) }
+				Default { $SystemSKU = $SystemBuild = "" }
+			}
 			# using logical operators for validation of MDM package compliancy with computer data fields
 			# watch out when matching against an empty string or $Null -> returns True
 			$OSNameMatch = ($OSName -eq $ComputerData.OSName)
 			# give back warning in log if OSversion is not found and allow installation of MDM package just the same
 			# maybe somewhat controversial but counting on Windows to select/filter drivers based on PNP ID's
-			$OSVersionMatch = ($OSVersion -eq $ComputerData.OSVersion)
-			if (-not $OSVersionMatch -and $OSVersionFallback.IsPresent) { $OSVersionMatch = ($OSVersion -eq $ComputerData.FallBackOSVersion) }
+			$OSVersionMatch = ($SystemBuild -contains $ComputerData.OSVersion)
+			if (-not $OSVersionMatch -and $OSVersionFallback.IsPresent) { $OSVersionMatch = ($SystemBuild -contains $ComputerData.FallBackOSVersion) }
 			if (-not $OSVersionMatch) { $OSVersionMatch = $true }
 			$OSArchitectureMatch = ($Architecture -eq $ComputerData.Architecture)
 			$ManufacturerMatch = ($MDMPackage.Manufacturer -like $ComputerData.Manufacturer)
 			$ComputerModelMatch = ($Model -like $ComputerData.Model)
 			# use correct Computer SKU match in debug string
 			$CompSKU = $ComputerData.SystemSKU
-			$SystemSKUMatch = ($SystemSKU -match $ComputerData.SystemSKU)
+			$SystemSKUMatch = ($SystemSKU -contains $ComputerData.SystemSKU)
 			if (-not $SystemSKUMatch) {
 				$CompSKU = $ComputerData.FallbackSKU
-				$SystemSKUMatch = ($SystemSKU -match $ComputerData.FallbackSKU)
+				$SystemSKUMatch = ($SystemSKU -contains $ComputerData.FallbackSKU)
 			}
 			#all matches must be true to confirm this driver package, grouping boolean operators allows pretty awesome validation rules :-)
 			[bool]$DetectionMethodResult = ($OSNameMatch -band $OSVersionMatch -band $OSArchitectureMatch -band $ManufacturerMatch -band $ComputerModelMatch -band $SystemSKUMatch)
@@ -751,9 +764,9 @@ Begin {
 					DateCreated    = $MDMPackage.SourceDate
 					Manufacturer   = $MDMPackage.Manufacturer
 					Model          = $Model
-					SystemSKU      = $SystemSKU
+					SystemSKU      = $SystemSKU -join ","
 					OSName         = $OSName
-					OSVersion      = $OSVersion
+					OSVersion      = $OSVersion -join ","
 					Architecture   = $Architecture
 				}
 				$DriverPackageDetails | Add-Member -MemberType AliasProperty -Name Name -Value PackageName
