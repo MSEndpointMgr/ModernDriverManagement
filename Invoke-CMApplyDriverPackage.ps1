@@ -1461,11 +1461,7 @@ Process {
 			
 			[parameter(Mandatory = $true, HelpMessage = "Specify the OS Image details object from Get-OSImageDetails function.")]
 			[ValidateNotNullOrEmpty()]
-			[PSCustomObject]$OSImageData,
-			
-			[parameter(Mandatory = $true, HelpMessage = "Specify the web service object returned from Connect-WebService function.")]
-			[ValidateNotNullOrEmpty()]
-			[PSCustomObject]$WebService
+			[PSCustomObject]$OSImageData
 		)
 		if ($Script:DriverPackageList.Count -eq 0) {
 			Write-CMLogEntry -Value " - Previous validation process could not find a match for a specific driver package, starting fallback driver package matching process" -Severity 1
@@ -2235,7 +2231,7 @@ Process {
 			Write-CMLogEntry -Value "[DriverPackageFallback]: Starting fallback driver package detection phase" -Severity 1
 			
 			# Match detected fallback driver packages from web service call with computer details and OS image details
-			Confirm-FallbackDriverPackage -ComputerData $ComputerData -OSImageData $OSImageDetails -WebService $WebService
+			Confirm-FallbackDriverPackage -ComputerData $ComputerData -OSImageData $OSImageDetails
 			
 			Write-CMLogEntry -Value "[DriverPackageFallback]: Completed fallback driver package detection phase" -Severity 1
 			Write-CMLogEntry -Value "[DriverPackageFallbackValidation]: Starting fallback driver package validation phase" -Severity 1
