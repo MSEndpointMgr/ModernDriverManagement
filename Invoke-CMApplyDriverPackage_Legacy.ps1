@@ -160,6 +160,7 @@
 	3.0.8 - (2020-08-07) Fixed an issue where the Confirm-SystemSKU function would cause the script to crash if the SystemSKU data was improperly conformed, for instance with duplicate entries
 	3.0.9 - (2020-09-10) IMPORTANT: This update addresses a change in Driver Automation Tool version 6.4.9 that comes with a change in naming HP driver packages such as 'Drivers - HP EliteBook x360 1030 G2 Base Model - Windows 10 1909 x64' instead of Hewlett-Packard in the name.
 						 Before changing to version 3.0.9 of this script, ensure Driver Automation Tool have been executed and all HP driver packages now reflect these changes.
+	3.1.0 - (2020-10-27) Updated with support for Windows 10 version 2009.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -586,6 +587,9 @@ Process {
 			"10.0*" {
 				$OSName = "Windows 10"
 				switch (([System.Version]$InputObject).Build) {
+					"19042" {
+						$OSVersion = 2009
+					}
 					"19041" {
 						$OSVersion = 2004
 					}

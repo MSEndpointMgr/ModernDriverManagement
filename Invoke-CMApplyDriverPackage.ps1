@@ -107,7 +107,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2021-02-16
+    Updated:     2021-03-18
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -194,6 +194,9 @@
 	4.0.8 - (2020-12-09) - Added new functionality to be able to read a custom Application ID URI, if the default of https://ConfigMgrService is not defined on the ServerApp.
 	4.0.9 - (2020-12-10) - Fixed default parameter set to "BareMetal"
 	4.1.0 - (2021-02-16) - Added support for new Windows 10 build version naming scheme, such as 20H2, 21H1 and so on.
+	4.1.1 - (2021-03-17) - Fixed issue with driver package detection logic where null value could cause a matched entry
+	4.1.2 - (2021-05-14) - Fixed bug for Driver Update process on 20H2
+	4.1.3 - (2021-05-28) - Added support for Windows 10 21H1
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -960,8 +963,11 @@ Process {
 			[string]$InputObject
 		)
 		switch (([System.Version]$InputObject).Build) {
+			"19043" {
+				$OSVersion = '21H1'
+			}
 			"19042" {
-				$OSVersion = 20H2
+				$OSVersion = '20H2'
 			}
 			"19041" {
 				$OSVersion = 2004
@@ -1701,7 +1707,7 @@ Process {
 			
 			# Attempt to match for each SystemSKU item based on computer data input
 			foreach ($SystemSKUItem in $DriverPackageInputArray) {
-				if ($ComputerData.SystemSKU -match $SystemSKUItem) {
+				if ((-not([string]::IsNullOrEmpty($ComputerData.SystemSKU))) -and ($ComputerData.SystemSKU -eq $SystemSKUItem)) {
 					# Add key value pair with match success
 					$SystemSKUTable.Add($SystemSKUItem, $true)
 					
