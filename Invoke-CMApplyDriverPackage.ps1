@@ -1004,7 +1004,7 @@ Process {
 		}
 		
 		# Handle return value from function
-		return $OSVersion
+		return [string]$OSVersion
 	}
 	
 	function Get-OSArchitecture {
