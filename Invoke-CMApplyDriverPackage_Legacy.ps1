@@ -161,6 +161,7 @@
 	3.0.9 - (2020-09-10) IMPORTANT: This update addresses a change in Driver Automation Tool version 6.4.9 that comes with a change in naming HP driver packages such as 'Drivers - HP EliteBook x360 1030 G2 Base Model - Windows 10 1909 x64' instead of Hewlett-Packard in the name.
 						 Before changing to version 3.0.9 of this script, ensure Driver Automation Tool have been executed and all HP driver packages now reflect these changes.
 	3.1.0 - (2020-10-27) Updated with support for Windows 10 version 2009.
+	3.1.1 - (2021-09-14) Updated with support for Windows 10 version 21H1, 21H2, and Windows 11.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -587,8 +588,17 @@ Process {
 			"10.0*" {
 				$OSName = "Windows 10"
 				switch (([System.Version]$InputObject).Build) {
+					"22000" {
+						$OSVersion = '21H2' #Windows 11
+					}
+					"19044" {
+						$OSVersion = '21H2'
+					}
+					"19043" {
+						$OSVersion = '21H1'
+					}
 					"19042" {
-						$OSVersion = 2009
+						$OSVersion = '20H2' #2009
 					}
 					"19041" {
 						$OSVersion = 2004
