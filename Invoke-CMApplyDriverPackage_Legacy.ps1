@@ -161,6 +161,7 @@
 	3.0.9 - (2020-09-10) IMPORTANT: This update addresses a change in Driver Automation Tool version 6.4.9 that comes with a change in naming HP driver packages such as 'Drivers - HP EliteBook x360 1030 G2 Base Model - Windows 10 1909 x64' instead of Hewlett-Packard in the name.
 						 Before changing to version 3.0.9 of this script, ensure Driver Automation Tool have been executed and all HP driver packages now reflect these changes.
 	3.1.0 - (2020-10-27) Updated with support for Windows 10 version 2009.
+	3.1.2 - (2021-09-14) Added support for Getac hardware manufacturer
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "Execute")]
 param (
@@ -854,18 +855,23 @@ Process {
                 $ComputerDetails.Manufacturer = "Viglen"
                 $ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
                 $ComputerDetails.SystemSKU = (Get-WmiObject -Class "Win32_BaseBoard" | Select-Object -ExpandProperty SKU).Trim()
-			}
-			"*AZW*" { 
-				$ComputerDetails.Manufacturer = "AZW"
-				$ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
-				$ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace root\WMI).BaseBoardProduct.Trim()
-			}
-			"*Fujitsu*" {
+            }
+            "*AZW*" { 
+		$ComputerDetails.Manufacturer = "AZW"
+		$ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
+		$ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace root\WMI).BaseBoardProduct.Trim()
+            }
+            "*Fujitsu*" {
                 $ComputerDetails.Manufacturer = "Fujitsu"
                 $ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
                 $ComputerDetails.SystemSKU = (Get-WmiObject -Class "Win32_BaseBoard" | Select-Object -ExpandProperty SKU).Trim()
-			}
-		}
+            }
+            "*Getac*" {
+		$ComputerDetails.Manufacturer = "Getac"
+		$ComputerDetails.Model = (Get-WmiObject -Class "Win32_ComputerSystem" | Select-Object -ExpandProperty Model).Trim()
+		$ComputerDetails.SystemSKU = (Get-CIMInstance -ClassName "MS_SystemInformation" -NameSpace root\WMI).BaseBoardProduct.Trim()
+            }
+        }
 		
 		# Handle overriding computer details if debug mode and additional parameters was specified
 		if ($Script:PSCmdlet.ParameterSetName -like "Debug") {
