@@ -197,6 +197,7 @@
 	4.1.1 - (2021-03-17) - Fixed issue with driver package detection logic where null value could cause a matched entry
 	4.1.2 - (2021-05-14) - Fixed bug for Driver Update process on 20H2
 	4.1.3 - (2021-05-28) - Added support for Windows 10 21H1
+	4.1.4 - (2021-09-14) - Added support for Windows 10 21H2
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -963,6 +964,12 @@ Process {
 			[string]$InputObject
 		)
 		switch (([System.Version]$InputObject).Build) {
+			"22000" {
+				$OSVersion = '21H2' #Windows 11
+			}
+			"19044" {
+				$OSVersion = '21H2'
+			}
 			"19043" {
 				$OSVersion = '21H1'
 			}
@@ -970,7 +977,7 @@ Process {
 				$OSVersion = '20H2'
 			}
 			"19041" {
-				$OSVersion = 2004
+				$OSVersion = 2004 #'20H1'
 			}
 			"18363" {
 				$OSVersion = 1909
