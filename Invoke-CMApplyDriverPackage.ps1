@@ -41,6 +41,9 @@
 .PARAMETER Filter
 	Define a filter used when calling ConfigMgr WebService to only return objects matching the filter.
 
+.PARAMETER TargetOS
+	Define the value that will be used as the target operating system version e.g. 'Windows 11'.
+
 .PARAMETER TargetOSVersion
 	Define the value that will be used as the target operating system version e.g. '2004'.
 
@@ -73,13 +76,13 @@
 
 .EXAMPLE
 	# Detect, download and apply drivers during OS deployment with ConfigMgr:
-	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909
+	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -TargetOS "Windows 10"
 
 	# Detect, download and apply drivers during OS deployment with ConfigMgr and use a driver fallback package if no matching driver package can be found:
-	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -UseDriverFallback
+	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -TargetOS "Windows 10" -UseDriverFallback
 
 	# Detect, download and apply drivers during OS deployment with ConfigMgr and check for driver packages that matches an earlier version than what's specified for TargetOSVersion:
-	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -OSVersionFallback
+	.\Invoke-CMApplyDriverPackage.ps1 -BareMetal -Endpoint "CM01.domain.com" -TargetOSVersion 1909 -TargetOS "Windows 10" -OSVersionFallback
 
 	# Detect and download drivers during OS upgrade with ConfigMgr:
 	.\Invoke-CMApplyDriverPackage.ps1 -OSUpgrade -Endpoint "CM01.domain.com" -TargetOSVersion 1909
@@ -197,6 +200,7 @@
 	4.1.1 - (2021-03-17) - Fixed issue with driver package detection logic where null value could cause a matched entry
 	4.1.2 - (2021-05-14) - Fixed bug for Driver Update process on 20H2
 	4.1.3 - (2021-05-28) - Added support for Windows 10 21H1
+	4.1.4 - (2022-02-17) - Added TargetOS parameter for Windows 11 support. 
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -265,6 +269,15 @@ param(
 	[ValidateNotNullOrEmpty()]
 	[ValidateSet("x64", "x86")]
 	[string]$TargetOSArchitecture = "x64",
+    
+	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system e.g. 'Windows 10'.")]
+	[parameter(Mandatory = $false, ParameterSetName = "OSUpgrade")]
+	[parameter(Mandatory = $false, ParameterSetName = "PreCache")]
+	[parameter(Mandatory = $false, ParameterSetName = "Debug")]
+	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
+	[ValidateNotNullOrEmpty()]
+	[ValidateSet("Windows 10", "Windows 11")]
+	[string]$TargetOS,
 	
 	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the operational mode, either Production or Pilot, for when calling ConfigMgr WebService to only return objects matching the selected operational mode.")]
 	[parameter(Mandatory = $false, ParameterSetName = "DriverUpdate")]
@@ -317,7 +330,7 @@ param(
 	[switch]$OSVersionFallback
 )
 Begin {
-	# Load Microsoft.SMS.TSEnvironment COM object
+    # Load Microsoft.SMS.TSEnvironment COM object
 	if ($PSCmdLet.ParameterSetName -notlike "Debug") {
 		try {
 			$TSEnvironment = New-Object -ComObject "Microsoft.SMS.TSEnvironment" -ErrorAction Stop
@@ -934,15 +947,17 @@ Process {
 			"DriverUpdate" {
 				$OSImageDetails = [PSCustomObject]@{
 					Architecture = Get-OSArchitecture -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty OSArchitecture)
-					Name = "Windows 10"
+					#Name = "Windows 10"
+                    Name = $Script:TargetOS
 					Version = Get-OSBuild -InputObject (Get-WmiObject -Class Win32_OperatingSystem | Select-Object -ExpandProperty Version)
 				}
 			}
 			default {
 				$OSImageDetails = [PSCustomObject]@{
 					Architecture = $Script:TargetOSArchitecture
-					Name = "Windows 10"
-					Version = $Script:TargetOSVersion
+					#Name = "Windows 10"
+					Name = $Script:TargetOS
+                    Version = $Script:TargetOSVersion
 				}
 			}
 		}
@@ -1350,7 +1365,8 @@ Process {
 			}
 			
 			# Add driver package OS name details to custom driver package details object
-			if ($DriverPackageItem.Name -match "^.*Windows.*(?<OSName>(10)).*") {
+			#if ($DriverPackageItem.Name -match "^.*Windows.*(?<OSName>(10)).*") {
+            if ($DriverPackageItem.Name -match "^.*Windows.*(?<OSName>(10|11)).*") {
 				$DriverPackageDetails.OSName = -join @("Windows ", $Matches.OSName)
 			}
 			
@@ -1631,13 +1647,14 @@ Process {
 			[ValidateNotNullOrEmpty()]
 			[PSCustomObject]$OSImageData
 		)
-		if ($DriverPackageInput -like $OSImageData.Name) {
+        if ($DriverPackageInput -like $OSImageData.Name) {
 			# OS name match found
 			Write-CMLogEntry -Value " - Matched operating system name: $($OSImageData.Name)" -Severity 1
 			return $true
 		}
 		else {
 			# OS name match was not found
+            Write-CMLogEntry -Value " - Not Matched operating system name: $($OSImageData.Name)" -Severity 1
 			return $false
 		}
 	}
@@ -2266,8 +2283,8 @@ Process {
 		}
 	}
 	catch [System.Exception] {
-		Write-CMLogEntry -Value "[ApplyDriverPackage]: Apply Driver Package process failed, please refer to previous error or warning messages" -Severity 3
-		
+		Write-CMLogEntry -Value $($error[0].Exception.Message) -Severity 3		
+        Write-CMLogEntry -Value "[ApplyDriverPackage]: Apply Driver Package process failed, please refer to previous error or warning messages" -Severity 3
 		# Main try-catch block was triggered, this should cause the script to fail with exit code 1
 		exit 1
 	}
