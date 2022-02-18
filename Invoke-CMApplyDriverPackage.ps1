@@ -43,6 +43,7 @@
 
 .PARAMETER TargetOS
 	Define the value that will be used as the target operating system version e.g. 'Windows 11'.
+	You will need to use triple double quotes if you are using this in a Run PowerShell Script TS step.
 
 .PARAMETER TargetOSVersion
 	Define the value that will be used as the target operating system version e.g. '2004'.
