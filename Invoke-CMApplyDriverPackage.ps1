@@ -206,6 +206,7 @@
 						 - Added support for Getac manufacturer
 						 - Extended the SystemSKU unwanted character cleanup process to include null and whitespaces
 						 - Fixed several issues related to the Fallback Driver Package functionality where old code was left behind from the webservice days
+	4.2.1 - (2022-09-22) - Added support for Windows 10 22H2
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -970,6 +971,9 @@ Process {
 		switch ($OSName) {
 			"Windows 11" {
 				switch (([System.Version]$InputObject).Build) {
+					"22621" {
+						$OSVersion = '22H2'
+					}
 					"22000" {
 						$OSVersion = '21H2'
 					}
