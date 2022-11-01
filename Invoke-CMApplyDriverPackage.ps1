@@ -110,7 +110,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2022-03-05
+    Updated:     2022-11-01
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -206,7 +206,8 @@
 						 - Added support for Getac manufacturer
 						 - Extended the SystemSKU unwanted character cleanup process to include null and whitespaces
 						 - Fixed several issues related to the Fallback Driver Package functionality where old code was left behind from the webservice days
-	4.2.1 - (2022-09-22) - Added support for Windows 10 22H2
+	4.2.1 - (2022-09-22) - Added support for Windows 11 22H2
+	4.2.2 - (2022-11-01) - Added support for Windows 10 22H2
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -988,6 +989,9 @@ Process {
 			}
 			"Windows 10" {
 				switch (([System.Version]$InputObject).Build) {
+					"19045" {
+						$OSVersion = '22H2'
+					}
 					"19044" {
 						$OSVersion = '21H2'
 					}
