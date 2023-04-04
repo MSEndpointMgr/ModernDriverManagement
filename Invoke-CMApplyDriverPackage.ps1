@@ -110,7 +110,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2022-03-05
+    Updated:     2023-04-03
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -207,6 +207,9 @@
 						 - Extended the SystemSKU unwanted character cleanup process to include null and whitespaces
 						 - Fixed several issues related to the Fallback Driver Package functionality where old code was left behind from the webservice days
 	4.2.1 - (2022-09-22) - Added support for Windows 10 22H2
+	4.2.2 - (2023-04-03) - Fixed several issues :
+						 - Change "+" caracters for Microsoft Manufacturer on Confirm-SystemSKU function (Replace "+" by "") (Exemple: Surface_Pro_7+_with_LTE_Advanced_1961)
+						 - Change -like operator on Confirm-ComputerModel function
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -274,7 +277,7 @@ param(
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
 	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
-	[ValidateSet("22H2", "21H2", "21H1", "20H2", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
+	[ValidateSet("22h2","22h1","21h2","21h1","20h2","22H2", "21H2", "21H1", "20H2", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
 	[string]$TargetOSVersion,
 	
 	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
@@ -988,6 +991,9 @@ Process {
 			}
 			"Windows 10" {
 				switch (([System.Version]$InputObject).Build) {
+					"19045" {
+						$OSVersion = '22H2'
+					}
 					"19044" {
 						$OSVersion = '21H2'
 					}
@@ -1363,6 +1369,9 @@ Process {
 					"HP" {
 						$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace(" - ", ":").Split(":").Trim()[1]
 					}
+					"Microsoft" {
+						$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace($DriverPackageItem.Manufacturer, "").Replace(" - ", ":").Replace("_"," ").Split(":").Trim()[1]
+					}
 					default {
 						$DriverPackageDetails.Model = $DriverPackageItem.Name.Replace($DriverPackageItem.Manufacturer, "").Replace(" - ", ":").Split(":").Trim()[1]
 					}
@@ -1596,8 +1605,8 @@ Process {
 		)
 		if ($OSVersionFallback -eq $true) {
 			# Attempt to convert 2XHX build version into digit, 2XH1 into 2X05 and 2XH2 into 2X10 for simplified version comparison
-			$DriverPackageInputConversion = $DriverPackageInput.Replace("H1", "05").Replace("H2", 10)
-			$OSImageDataVersionConversion = $OSImageData.Version.Replace("H1", "05").Replace("H2", 10)
+			$DriverPackageInputConversion = $DriverPackageInput.Replace("H1", "05").Replace("H2", 10).Replace("h1", "05").Replace("h2",10)
+			$OSImageDataVersionConversion = $OSImageData.Version.Replace("H1", "05").Replace("H2", 10).Replace("h1", "05").Replace("h2",10)
 
 			if ([int]$DriverPackageInputConversion -lt [int]$OSImageDataVersionConversion) {
 				# OS version match found where driver package input was less than input from OSImageData version
@@ -1681,7 +1690,7 @@ Process {
 			Detected = $null
 		}
 		
-		if ($DriverPackageInput -like $ComputerData.Model) {
+		if ($DriverPackageInput -like "*$ComputerData.Model*") {
 			# Computer model match found
 			Write-CMLogEntry -Value " - Matched computer model: $($ComputerData.Model)" -Severity 1
 			
@@ -1719,7 +1728,7 @@ Process {
 		}
 		
 		# Remove any space characters from driver package input data, replace them with a comma instead and ensure there's no duplicate entries
-		$DriverPackageInputArray = $DriverPackageInput.Replace(" ", ",").Split($SystemSKUDelimiter) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+		$DriverPackageInputArray = $DriverPackageInput.Replace("+","").Replace(" ", ",").Split($SystemSKUDelimiter) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 		
 		# Construct custom object for return value
 		$SystemSKUDetectionResult = [PSCustomObject]@{
@@ -1727,12 +1736,14 @@ Process {
 			SystemSKUValue = $null
 		}
 		
+		$DriverPackageInput = $DriverPackageInput.replace("+","")
+		$ComputerData.SystemSKU = $ComputerData.SystemSKU.replace("+","")
+
 		# Attempt to determine if the driver package input matches with the computer data input and account for multiple SystemSKU's by separating them with the detected delimiter
 		if (-not ([string]::IsNullOrEmpty($SystemSKUDelimiter))) {
 			# Construct table for keeping track of matched SystemSKU items
 			$SystemSKUTable = @{
 			}
-			
 			# Attempt to match for each SystemSKU item based on computer data input
 			foreach ($SystemSKUItem in $DriverPackageInputArray) {
 				if ((-not([string]::IsNullOrEmpty($ComputerData.SystemSKU))) -and ($ComputerData.SystemSKU -eq $SystemSKUItem)) {
