@@ -110,7 +110,7 @@
 	Author:      Nickolaj Andersen / Maurice Daly
     Contact:     @NickolajA / @MoDaly_IT
     Created:     2017-03-27
-    Updated:     2022-03-05
+    Updated:     2024-02-06
 	
 	Contributors: @CodyMathis123, @JamesMcwatty
     
@@ -207,7 +207,8 @@
 						 - Extended the SystemSKU unwanted character cleanup process to include null and whitespaces
 						 - Fixed several issues related to the Fallback Driver Package functionality where old code was left behind from the webservice days
 	4.2.1 - (2022-09-22) - Added support for Windows 10 22H2
-	4.2.2 - (2023-06-23) - Fixed Windows 10 22H2 missing switch value
+	4.2.2 - (2023-06-23) - Fixed Windows 10 22H2 missing switch value.
+ 	4.2.3 - (2024-02-06) - Added support for Windows 11 23H2
 #>
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = "BareMetal")]
 param(
@@ -275,7 +276,7 @@ param(
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
 	[parameter(Mandatory = $false, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
-	[ValidateSet("22H2", "21H2", "21H1", "20H2", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
+	[ValidateSet("23H2","22H2", "21H2", "21H1", "20H2", "2004", "1909", "1903", "1809", "1803", "1709", "1703", "1607")]
 	[string]$TargetOSVersion,
 	
 	[parameter(Mandatory = $false, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system architecture e.g. 'x64'.")]
@@ -972,6 +973,9 @@ Process {
 		switch ($OSName) {
 			"Windows 11" {
 				switch (([System.Version]$InputObject).Build) {
+    					"22631" {
+						$OSVersion = '23H2'
+					}
 					"22621" {
 						$OSVersion = '22H2'
 					}
