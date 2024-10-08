@@ -974,7 +974,7 @@ Process {
 		switch ($OSName) {
 			"Windows 11" {
 				switch (([System.Version]$InputObject).Build) {
-    				"26100" {
+    					"26100" {
 						$OSVersion = '24H2'
 					}
 					"22631" {
