@@ -819,6 +819,10 @@ Process {
 		catch [System.Exception] {
 			Write-CMLogEntry -Value " - Unable to detect PSIntuneAuth module, attempting to install from PSGallery" -Severity 2
 			try {
+                #Force TLS1.2
+				Write-CMLogEntry -Value " - Setting security protocol to TLS1.2" -Severity 1
+				[Net.servicepointmanager]::securityprotocol = [Net.securityProtocolType]::Tls12
+
 				# Install NuGet package provider
 				$PackageProvider = Install-PackageProvider -Name "NuGet" -Force -Verbose:$false
 				
