@@ -765,6 +765,12 @@ Process {
 					$true {
 						if ($ActiveMPExternalCandidatesCount -ge 1) {
 							$Script:AdminServiceEndpointType = "External"
+							##Force Internal by Variable MDMDeploymentType - this enables TS deployment after reboot with device vpn for offsite CGW OSD
+                            $Script:DeploymentType = $TSEnvironment.Value("MDMDeploymentType")
+                            if (-not([string]::IsNullOrEmpty($Script:DeploymentType))) {
+					           $Script:AdminServiceEndpointType = $Script:DeploymentType
+				            }
+                            ###
 						}
 						else {
 							Write-CMLogEntry -Value " - Detected as an Internet client but unable to determine External AdminService endpoint, bailing out" -Severity 3
