@@ -268,7 +268,7 @@ param(
 	[parameter(Mandatory = $true, ParameterSetName = "Debug")]
 	[parameter(Mandatory = $true, ParameterSetName = "XMLPackage")]
 	[ValidateNotNullOrEmpty()]
-	[ValidateSet("Windows 11", "Windows 10")]
+	[ValidateSet("Windows 11", "Windows11", "Win11", "W11", "Windows 10", "Windows10", "Win10", "W10")]
 	[string]$TargetOSName,
 	
 	[parameter(Mandatory = $true, ParameterSetName = "BareMetal", HelpMessage = "Define the value that will be used as the target operating system version e.g. '2004'.")]
@@ -972,7 +972,7 @@ Process {
 			[string]$OSName	
 		)
 		switch ($OSName) {
-			"Windows 11" {
+			{"Windows 11", "Windows11", "Win11", "W11" -eq $_} {
 				switch (([System.Version]$InputObject).Build) {
         				"26100" {
 						$OSVersion = '24H2'
@@ -995,7 +995,7 @@ Process {
 					}
 				}
 			}
-			"Windows 10" {
+			{"Windows 10", "Windows10", "Win10", "W10" -eq $_} {
 				switch (([System.Version]$InputObject).Build) {
 					"19045" {
 						$OSVersion = '22H2'
