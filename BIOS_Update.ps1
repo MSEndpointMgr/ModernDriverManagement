@@ -1,21 +1,33 @@
-# This script checks the current BIOS version and compares it to the latest available version from the manufacturer. If an update is needed, it downloads and installs the update, then prompts the user to reboot. Requires Reboot Tool to be installed.
-# Requires Toast Notification be installed.
-# HP BIOS update requires HPCMSL PowerShell module.
-# https://github.com/damienvanrobaeys/Lenovo_BIOS_Auto_Update
-# https://github.com/gwblok/garytown/blob/master/RunScripts/Update-HPBIOS.ps1
-# https://github.com/MSEndpointMgr/Intune/tree/master/Firmware/Intune%20BIOS%20Update%20Control/BIOSUpdate_PR
-# https://github.com/gwblok/garytown/blob/master/Intune/Update-HPCSML.ps1
+<#
+    This script checks the current BIOS version and compares it to the latest available version from the manufacturer. If an update is needed, it downloads and installs the update, then prompts the user to reboot. Requires Reboot Tool to be installed.
+    Requires Toast Notification to be installed.
+    HP BIOS update requires HPCMSL PowerShell module.
+    https://github.com/damienvanrobaeys/Lenovo_BIOS_Auto_Update
+    https://github.com/gwblok/garytown/blob/master/RunScripts/Update-HPBIOS.ps1
+    https://github.com/MSEndpointMgr/Intune/tree/master/Firmware/Intune%20BIOS%20Update%20Control/BIOSUpdate_PR
+    https://github.com/gwblok/garytown/blob/master/Intune/Update-HPCSML.ps1
+#>
 
-[string]$Global:IntuneManagementExtensionPath = $(Join-Path -Path $env:ProgramData "Microsoft\IntuneManagementExtension\Logs")
-[string]$Global:LogFilePath = $null
+[CmdletBinding()]
+param(
+    [parameter(Mandatory = $false, HelpMessage = "Path to store log file. Default is Intune Management Extension log folder.")]
+    [string]$IntuneManagementExtensionPath = $(Join-Path -Path $env:ProgramData "Microsoft\IntuneManagementExtension\Logs"),
+    [parameter(Mandatory = $false, HelpMessage = "Path to Reboot Tool and Toast Notification scripts.")]
+    [string]$ToastNotificationPath = "$(${env:ProgramFiles(x86)})\Contoso\Reboot\",
+    [parameter(Mandatory = $false, HelpMessage = "Password for HP BIOS update if BIOS is password protected.")]
+    [string]$HpBIOSPassword = $null,
+    [parameter(Mandatory = $false, HelpMessage = "Password for Lenovo BIOS update if BIOS is password protected.")]
+    [string]$LenovoBIOSPassword = $null,
+    [parameter(Mandatory = $false, HelpMessage = "Defines the maximum age of the latest BIOS update to be installed. This is to prevent installing very new BIOS updates that might cause issues. Set to 0 to disable this check.")]
+    [int]$LatestBIOSDays = 14,
+    [parameter(Mandatory = $false, HelpMessage = "Set to false to only detect if a BIOS update is needed, but do not install it.")]
+    [bool]$Remediate = $true,
+    [parameter(Mandatory = $false, HelpMessage = "Set to true to ignore AC power check. Not recommended, as BIOS updates usually require AC power.")]
+    [bool]$IgnoreACPowerCheck = $false
+)
+
 [string]$Global:LogFilePath = $(Join-Path -Path $IntuneManagementExtensionPath -ChildPath 'BIOS_Update.log')
-
-[string]$Global:ToastNotificationPath = "$(${env:ProgramFiles(x86)})\Contoso\Reboot\"
-
-[string]$Global:HpBIOSPassword = $null
-[string]$Global:LenovoBIOSPassword = $null
-
-[bool]$Global:Remediate = $true
+[string]$Global:ToastNotificationPath = $ToastNotificationPath
 
 function Write-Log
 {
@@ -78,6 +90,8 @@ function Write-Log
             $LogFile | Rename-Item -NewName $NewFileName
             New-Item -Path $Global:LogFilePath -ItemType File -ErrorAction Stop | Out-Null
         }
+
+            Write-Verbose -Message $LogText
     }
     
     Process
@@ -94,6 +108,16 @@ function Write-Log
 }
 
 function Test-RebootPending {
+	
+	[CmdletBinding()]
+    param (
+        [bool]$WindowsUpdate = $true,
+        [bool]$CBS = $true,
+        [bool]$PendingFileRename = $true,
+        [bool]$DomainJoin = $true,
+        [bool]$ServerManager = $true
+    )
+	
     function Test-RegistryValue {
         param (
             [parameter(Mandatory)][string]$Path,
@@ -110,28 +134,39 @@ function Test-RebootPending {
     $PendingReboot = $false
 
     # Registry keys to check
-    $keys = @(
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
-        "HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts"
-    )
-
-    # Registry values to check
-    $values = @(
-        @{ Path="HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing"; Name="RebootInProgress" },
-        @{ Path="HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing"; Name="PackagesPending" },
-        @{ Path="HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager"; Name="PendingFileRenameOperations" },
-        @{ Path="HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager"; Name="PendingFileRenameOperations2" },
-        @{ Path="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; Name="DVDRebootSignal" },
-        @{ Path="HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon"; Name="JoinDomain" },
-        @{ Path="HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon"; Name="AvoidSpnSet" }
-    )
+    $keys = @()
+	$values = @()
+	
+	if ($WindowsUpdate) {
+		$keys += "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+        $keys += "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting"
+	}
+	
+	if($CBS) {
+		$keys += "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"
+		$values += @{ Path="HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing"; Name="RebootInProgress" }
+        $values += @{ Path="HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing"; Name="PackagesPending" }
+	}
+	
+	if ($PendingFileRename) {
+		$values += @{ Path="HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager"; Name="PendingFileRenameOperations" }
+        $values += @{ Path="HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager"; Name="PendingFileRenameOperations2" }
+	}
+	
+	if($ServerManager) {
+		$keys += "HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts"
+		$values += @{ Path="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; Name="DVDRebootSignal" }
+	}
+	
+	if ($DomainJoin) {
+		$values += @{ Path="HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon"; Name="JoinDomain" }
+        $values += @{ Path="HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon"; Name="AvoidSpnSet" }
+    }
 
     # Check keys
     foreach ($key in $keys) {
         if (Test-Path $key) {
-            #Write-Host $key
+            Write-Verbose $key
             $PendingReboot = $true
         }
     }
@@ -139,7 +174,7 @@ function Test-RebootPending {
     # Check values
     foreach ($item in $values) {
         if (Test-RegistryValue -Path $item.Path -Value $item.Name) {
-            #Write-Host "$($item.Path) > $($item.Name)"
+            Write-Verbose "$($item.Path) > $($item.Name)"
             $PendingReboot = $true
         }
     }
@@ -148,21 +183,25 @@ function Test-RebootPending {
 }
 
 function Show-ToastMessage(){
+	[CmdletBinding()]
+    param (
+        [string]$ToastScript = (Join-Path -Path $Global:ToastNotificationPath -ChildPath "Remediate-ToastNotification.ps1"),
+		[string]$ToastConfig = (Join-Path -Path $Global:ToastNotificationPath -ChildPath "config-toast-biosupdate.xml"),
+		[string]$PSInvoker = (Join-Path -Path $Global:ToastNotificationPath -ChildPath "PSInvoker.exe")
+    )
+	
 	$Component = "ToastMessage"
 	
-	$ToastScript = Join-Path -Path $Global:ToastNotificationPath -ChildPath "Remediate-ToastNotification.ps1"
-	$BIOSConfig = Join-Path -Path $Global:ToastNotificationPath -ChildPath "config-toast-biosupdate.xml"
-	$PSInvoker = Join-Path -Path $Global:ToastNotificationPath -ChildPath "PSInvoker.exe"
 	$TaskName = 'TempToast'
 
-    if((Test-Path $ToastScript -eq $false) -or (Test-Path $BIOSConfig -eq $false) -or (Test-Path $PSInvoker -eq $false)){
+    if(((Test-Path $ToastScript) -eq $false) -or ((Test-Path $ToastConfig) -eq $false) -or ((Test-Path $PSInvoker) -eq $false)){
         Write-Log -Component $Component -LogText "One or more required files for Toast Notification not found" -Type Error
         return
     }
 	
 	Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
 
-	$TaskAction = New-ScheduledTaskAction -Execute $PSInvoker -Argument "`"$ToastScript`" `"$BIOSConfig`""
+	$TaskAction = New-ScheduledTaskAction -Execute $PSInvoker -Argument "`"$ToastScript`" `"$ToastConfig`""
 	$TaskPrincipal = New-ScheduledTaskPrincipal -GroupId S-1-5-32-545
 	$Task = New-ScheduledTask -Action $TaskAction -Principal $TaskPrincipal
 
@@ -180,36 +219,48 @@ function Show-ToastMessage(){
 	Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
 }
 
-if ($Global:Remediate -eq $true){ $Component = "BIOS - Remediation" } else {$Component = "BIOS - Detection"}
+if ($Remediate -eq $true){ $Component = "BIOS - Remediation" } else {$Component = "BIOS - Detection"}
 Write-Log -Component $Component -LogText "Script started"
 
 # Check pending reboot
-if(Test-RebootPending -contains $true){
+if((Test-RebootPending -PendingFileRename $false) -contains $true){
     $Component = "Pending Reboot Check"
 	Write-Log -Component $Component -LogText "Pending Reboot. Aborting BIOS update."
-    #Write-Log -Component $Component -LogText "Pending Reboot."
-    #exit 1
+	Show-ToastMessage -ToastConfig "$ToastNotificationPath\config-toast-pendingreboot.xml"
+    exit 1
 }
 
 # --- AC POWER CHECK ---
 try {
-	$Component = "AC POWER CHECK"
-    $PowerStatus = Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue
+    $Component = "AC POWER CHECK"
 
-    if ($PowerStatus) {
-        # BatteryStatus 2 = Charging, 6 = Charging and High, 7 = Charging and Low, 8 = Charging and Critical
-        if ($PowerStatus.BatteryStatus -notin 2,6,7,8) {
-            Write-Log -Component $Component -LogText "Device is NOT connected to AC power. Aborting BIOS update."
-            exit 1
-        }
-    }
-    else {
-        Write-Log -Component $Component -LogText "No battery detected (likely desktop) -> continuing"
-    }
+	Write-Log -Component $Component -LogText "Checking if device is connected to AC power."
+        
+	$PowerStatus = Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue
+
+	if ($PowerStatus) {
+		# BatteryStatus 2 = Charging, 6 = Charging and High, 7 = Charging and Low, 8 = Charging and Critical
+		if ($PowerStatus.BatteryStatus -notin 2,6,7,8 -and $IgnoreACPowerCheck -eq $false) {
+			Write-Log -Component $Component -LogText "Device is NOT connected to AC power. Aborting BIOS update."
+			exit 1
+		} elseif($IgnoreACPowerCheck -eq $true){
+			Write-Log -Component $Component -LogText "AC power check is ignored by configuration. Continuing with BIOS update." -Type Warning
+		}
+	}
+	else {
+		Write-Log -Component $Component -LogText "No battery detected (likely desktop) -> continuing"
+	}
 }
 catch {
     Write-Log -Component $Component -LogText "Could not determine power status: $_"
     exit 1
+}
+
+$ComputerInfoDetails = Get-ComputerInfo
+if ($ComputerInfoDetails.CsUserName -match "defaultUser") {
+	$Component = "ESP Installation"
+	Write-Log -Component $Component -LogText "Device in enrollment status. Aborting BIOS update."
+	exit 1
 }
 
 $Manufacturer = (Get-CimInstance Win32_ComputerSystem).Manufacturer
@@ -235,14 +286,12 @@ if ($Manufacturer -match "HP")
         exit 1  
     }
 
-    if ([datetime]$LatestHPBIOS.Date -le (Get-Date).AddDays(-14)) {
-        #Write-Output "BIOS update is at least 2 weeks old"
-    } else {
-        Write-Log -Component $Component -LogText "BIOS update is newer than 2 weeks. Not installing yet!"
+    if ([datetime]$LatestHPBIOS.Date -gt (Get-Date).AddDays(-($LatestBIOSDays))) {
+        Write-Log -Component $Component -LogText "BIOS update is newer than $($LatestBIOSDays) days. Not installing yet!"
         exit 0
     }
 
-    if ([System.Version]$LatestHPBIOS.Ver -gt [System.Version]$BIOSVersion -and $Global:Remediate -eq $true)
+    if ([System.Version]$LatestHPBIOS.Ver -gt [System.Version]$BIOSVersion -and $Remediate -eq $true)
     {
 
         Write-Log -Component $Component -LogText "Updating BIOS: $BIOSVersion -> $($LatestHPBIOS.Ver)"
@@ -252,7 +301,7 @@ if ($Manufacturer -match "HP")
 
             if ($BIOSPassSet)
             {
-                #Get-HPBIOSUpdates -Flash -Quiet -Yes -Password $Global:HpBIOSPassword
+                #Get-HPBIOSUpdates -Flash -Quiet -Yes -Password $HpBIOSPassword
                 Write-Log -Component $Component -LogText "BIOS has password" -Type Error
                 exit 1
             }
@@ -283,7 +332,7 @@ if ($Manufacturer -match "HP")
 
         exit 0
 
-    } elseif ([System.Version]$LatestHPBIOS.Ver -gt [System.Version]$BIOSVersion -and $Global:Remediate -eq $false) {
+    } elseif ([System.Version]$LatestHPBIOS.Ver -gt [System.Version]$BIOSVersion -and $Remediate -eq $false) {
         Write-Log -Component $Component -LogText "BIOS update available: $BIOSVersion -> $($LatestHPBIOS.Ver)"
         exit 1
     } else {
@@ -321,14 +370,14 @@ if ($Manufacturer -match "HP")
 	}
 	
 	$baseUrl = $PackageUrls.Substring(0,$PackageUrls.LastIndexOf('/')+1)
-	$LatestHPBIOS = $PackageXml.Package	
-	if($null -eq $LatestHPBIOS)	{
+	$LatestLenovoBIOS = $PackageXml.Package	
+	if($null -eq $LatestLenovoBIOS)	{
 		Write-Log -Component $Component -LogText "Can not get BIOS info from Lenovo: $_" -Type Error
 		exit 1
 	}
 	
-	if ([datetime]$LatestHPBIOS.ReleaseDate -gt (Get-Date).AddDays(-14)) {
-		Write-Log -Component $Component -LogText "BIOS update is newer than 2 weeks. Not installing yet!"
+	if ([datetime]$LatestLenovoBIOS.ReleaseDate -gt (Get-Date).AddDays(-($LatestBIOSDays))) {
+		Write-Log -Component $Component -LogText "BIOS update is newer than $($LatestBIOSDays) days. Not installing yet!"
 		exit 0
 	}
 	
@@ -337,87 +386,277 @@ if ($Manufacturer -match "HP")
 	$BIOS_Min_Version = $BIOS_info.SystemBiosMinorVersion 
 	$BIOSVersion = "$BIOS_Maj_Version.$BIOS_Min_Version"
 	
-	$LatestHPBIOSVersion = $LatestHPBIOS.version
+	$LatestBIOSVersion = $LatestLenovoBIOS.version
 
-	if([System.Version]$LatestHPBIOSVersion -gt [System.Version]$BIOSVersion -and $Global:Remediate -eq $true) {
+	# Check if LatestBIOSVersion is a number
+	if([System.Version]::TryParse($LatestBIOSVersion, [ref]$null)){
 		
-		Write-Log -Component $Component -LogText "Downloading BIOS: $LatestHPBIOSVersion"
-		Invoke-WebRequest -Uri ($baseUrl + $PackageXml.Package.Files.Installer.File.Name) -OutFile ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestHPBIOSVersion).exe")
-		If(Test-Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestHPBIOSVersion).exe")){
-			Write-Log -Component $Component -LogText "Updating BIOS: $BIOSVersion -> $LatestHPBIOSVersion"
-			$Extract_Folder_Path = $null
-			try	{
-                Write-Log -Component $Component -LogText "Trying to extract BIOS update"
-                $Extract_Folder_Path = "$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestHPBIOSVersion)"
-				Start-Process -FilePath ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestHPBIOSVersion).exe") -ArgumentList "/VERYSILENT /DIR=$Extract_Folder_Path /EXTRACT=YES" -PassThru -Wait
-				
-                $FlashSwitches = " /S"
-                if ($Global:LenovoBIOSPassword)
-		        {
-                    $FlashSwitches = $FlashSwitches + " /pass:$($Global:LenovoBIOSPassword)"
-			        Write-Log -Component $Component -LogText "BIOS has password" -Type Error
-			        exit 1
-		        }
+		if([System.Version]$LatestBIOSVersion -gt [System.Version]$BIOSVersion -and $Remediate -eq $true) {
+			
+			Write-Log -Component $Component -LogText "Downloading BIOS: $LatestBIOSVersion"
+			Invoke-WebRequest -Uri ($baseUrl + $PackageXml.Package.Files.Installer.File.Name) -OutFile ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestBIOSVersion).exe")
+			If(Test-Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestBIOSVersion).exe")){
+				Write-Log -Component $Component -LogText "Updating BIOS: $BIOSVersion -> $LatestBIOSVersion"
+				$Extract_Folder_Path = $null
+				try	{
+					Write-Log -Component $Component -LogText "Trying to extract BIOS update"
+					$Extract_Folder_Path = "$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestBIOSVersion)"
+					Start-Process -FilePath ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestBIOSVersion).exe") -ArgumentList "/VERYSILENT /DIR=$Extract_Folder_Path /EXTRACT=YES" -PassThru -Wait
+					
+					$FlashSwitches = " /S"
+					if ($LenovoBIOSPassword)
+					{
+						$FlashSwitches = $FlashSwitches + " /pass:$($LenovoBIOSPassword)"
+						Write-Log -Component $Component -LogText "BIOS has password" -Type Error
+						exit 1
+					}
 
-                $WinUPTPUtility = $null
-                if ([Environment]::Is64BitOperatingSystem) {
-                    $WinUPTPUtility = Get-ChildItem -Path $Extract_Folder_Path -Filter "*.exe" -Recurse | Where-Object { $_.Name -like "WinUPTP64.exe" } | Select-Object -ExpandProperty FullName
-                }
+					$WinUPTPUtility = $null
+					if ([Environment]::Is64BitOperatingSystem) {
+						$WinUPTPUtility = Get-ChildItem -Path $Extract_Folder_Path -Filter "*.exe" -Recurse | Where-Object { $_.Name -like "WinUPTP64.exe" } | Select-Object -ExpandProperty FullName
+					}
 
-                if (!($WinUPTPUtility)) {
-                    $WinUPTPUtility = Get-ChildItem -Path $Extract_Folder_Path -Filter "*.exe" -Recurse | Where-Object { $_.Name -like "WinUPTP.exe" } | Select-Object -ExpandProperty FullName
-                }
+					if (!($WinUPTPUtility)) {
+						$WinUPTPUtility = Get-ChildItem -Path $Extract_Folder_Path -Filter "*.exe" -Recurse | Where-Object { $_.Name -like "WinUPTP.exe" } | Select-Object -ExpandProperty FullName
+					}
 
-                if(Test-Path $WinUPTPUtility){
-                    Write-Log -Component $Component -LogText "Disable BitLocker for one reboot"
-				    #& cmd.exe /c "manage-bde -protectors -disable C:"
-                    if ((Manage-Bde -Status C:) -match "Protection On") {
-                        Suspend-BitLocker -MountPoint "$($env:SystemDrive)" -RebootCount 1
-                    }
+					if(Test-Path $WinUPTPUtility){
+						Write-Log -Component $Component -LogText "Disable BitLocker for one reboot"
+						#& cmd.exe /c "manage-bde -protectors -disable C:"
+						if ((Manage-Bde -Status C:) -match "Protection On") {
+							Suspend-BitLocker -MountPoint "$($env:SystemDrive)" -RebootCount 1
+						}
 
-                    Write-Log -Component $Component -LogText "Tryig to install BIOS Update: $WinUPTPUtility $FlashSwitches"
-                    $FlashProcess = Start-Process -FilePath $WinUPTPUtility -ArgumentList "$FlashSwitches" -Passthru -Wait
+						Write-Log -Component $Component -LogText "Tryig to install BIOS Update: $WinUPTPUtility $FlashSwitches"
+						$FlashProcess = Start-Process -FilePath $WinUPTPUtility -ArgumentList "$FlashSwitches" -Passthru -Wait
 
-                    Write-Log -Component $Component -LogText "BIOS Update installed with exit code: $($FlashProcess.ExitCode)"
-                }
-				
-				try {   
-					Show-ToastMessage
+						Write-Log -Component $Component -LogText "BIOS Update installed with exit code: $($FlashProcess.ExitCode)"
+					}
+					
+					try {   
+						Show-ToastMessage
+					}
+					catch {
+						Write-Log -Component $Component -LogText "Toast notification failed: $_" -Type Error
+					}
 				}
 				catch {
-					Write-Log -Component $Component -LogText "Toast notification failed: $_" -Type Error
+					Write-Log -Component $Component -LogText "Error during last BIOS action" -Type Error
+					
+					$BLinfo = Get-Bitlockervolume | Where-Object { $_.MountPoint -eq $env:SystemDrive}
+					if($blinfo.ProtectionStatus -ne 'On'){
+						Write-Host "Enable Bitlocker"
+						Resume-BitLocker -MountPoint ($BLinfo.MountPoint)
+					}
+
+					if($Extract_Folder_Path){
+						Remove-Item -Path $Extract_Folder_Path -Force -Recurse -ErrorAction SilentlyContinue
+					}
+					Remove-Item -Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestBIOSVersion).exe") -Force -ErrorAction SilentlyContinue
+
+					exit 1
+				} finally {
+					if($Extract_Folder_Path){
+						Remove-Item -Path $Extract_Folder_Path -Force -Recurse -ErrorAction SilentlyContinue
+					}
+					Remove-Item -Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestBIOSVersion).exe") -Force -ErrorAction SilentlyContinue
 				}
 			}
-			catch {
-				Write-Log -Component $Component -LogText "Error during last BIOS action" -Type Error
-                
-                $BLinfo = Get-Bitlockervolume | Where-Object { $_.MountPoint -eq $env:SystemDrive}
-                if($blinfo.ProtectionStatus -ne 'On'){
-                    Write-Host "Enable Bitlocker"
-                    Resume-BitLocker -MountPoint ($BLinfo.MountPoint)
-                }
-
-                if($Extract_Folder_Path){
-					Remove-Item -Path $Extract_Folder_Path -Force -Recurse -ErrorAction SilentlyContinue
-				}
-				Remove-Item -Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestHPBIOSVersion).exe") -Force -ErrorAction SilentlyContinue
-
-				exit 1
-			} finally {
-				if($Extract_Folder_Path){
-					Remove-Item -Path $Extract_Folder_Path -Force -Recurse -ErrorAction SilentlyContinue
-				}
-				Remove-Item -Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestHPBIOSVersion).exe") -Force -ErrorAction SilentlyContinue
-			}
+		} elseif ([System.Version]$LatestBIOSVersion -gt [System.Version]$BIOSVersion -and $Remediate -eq $false) {
+			Write-Log -Component $Component -LogText "BIOS update available: $BIOSVersion -> $LatestBIOSVersion"
+			exit 1
+		} else {
+			Write-Log -Component $Component -LogText "BIOS is already up-to-date: $BIOSVersion"
+			exit 0
 		}
-    } elseif ([System.Version]$LatestHPBIOSVersion -gt [System.Version]$BIOSVersion -and $Global:Remediate -eq $false) {
-        Write-Log -Component $Component -LogText "BIOS update available: $BIOSVersion -> $LatestHPBIOSVersion"
-        exit 1
 	} else {
-		Write-Log -Component $Component -LogText "BIOS is already up-to-date: $BIOSVersion"
-		exit 0
-	}
+		Write-Log -Component $Component -LogText "Lenovo Consumer Hardware" -Type Warning
 		
+		if([datetime]$LatestLenovoBIOS.ReleaseDate -gt $BIOS_info.ReleaseDate -and $LatestLenovoBIOS.version -ne $BIOS_info.SMBIOSBIOSVersion -and $Remediate -eq $true){
+			Write-Log -Component $Component -LogText "Downloading BIOS: $($LatestLenovoBIOS.ReleaseDate)"
+			Invoke-WebRequest -Uri ($baseUrl + $PackageXml.Package.Files.Installer.File.Name) -OutFile ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestLenovoBIOS.ReleaseDate).exe")
+			If(Test-Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestLenovoBIOS.ReleaseDate).exe")){
+				Write-Log -Component $Component -LogText "Updating BIOS: $($BIOS_info.ReleaseDate) -> $($LatestLenovoBIOS.ReleaseDate)"
+				
+				$Extract_Folder_Path = $null
+				try	{
+					$Extract_Folder_Path = "$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$(($LatestLenovoBIOS.ReleaseDate))"
+					if (!(Test-Path $Extract_Folder_Path)){New-Item -Path $Extract_Folder_Path -ItemType Directory -Force}
+					& tar -xf "$($env:windir)\Temp\Lenovo_BIOS_Update_$($LatestLenovoBIOS.ReleaseDate).exe" -C $Extract_Folder_Path
+					
+					$BiosUpdateFile = Get-ChildItem -Path $Extract_Folder_Path -Filter "*.fd"
+					
+					if((Test-Path "$Extract_Folder_Path\H2OFFT-W.exe") -and (Test-Path $BiosUpdateFile.FullName)){
+						Write-Log -Component $Component -LogText "Disable BitLocker for one reboot"
+						#& cmd.exe /c "manage-bde -protectors -disable C:"
+						if ((Manage-Bde -Status C:) -match "Protection On") {
+							Suspend-BitLocker -MountPoint "$($env:SystemDrive)" -RebootCount 1
+						}
+						
+						$IniPlatform = Get-Content "$Extract_Folder_Path\platform.ini"
+						$IniPlatform = $IniPlatform -replace '^Confirm=.*$', 'Confirm=0'
+						$IniPlatform = $IniPlatform -replace '^Silent=.*$', 'Silent=1'
+						$IniPlatform = $IniPlatform -replace '^SilentWithDialog=.*$', 'SilentWithDialog=0'
+						$IniPlatform | Set-Content "$Extract_Folder_Path\platform.ini"
+						
+						$FlashSwitches = $null
+						#$FlashSwitches = "$BiosUpdateFile -s -capsule"
+						
+						Write-Log -Component $Component -LogText "Tryig to install BIOS Update: $Extract_Folder_Path\H2OFFT-W.exe $FlashSwitches"
+						$FlashProcess = Start-Process -FilePath "$Extract_Folder_Path\H2OFFT-W.exe" -WorkingDirectory $Extract_Folder_Path -Passthru -Wait
+
+						Write-Log -Component $Component -LogText "BIOS Update installed with exit code: $($FlashProcess.ExitCode)"
+						
+						if($FlashProcess.ExitCode -eq 3010) {
+							try {   
+								Show-ToastMessage
+							}
+							catch {
+								Write-Log -Component $Component -LogText "Toast notification failed: $_" -Type Error
+							}
+						}
+					}
+					
+
+				}
+				catch {
+					Write-Log -Component $Component -LogText "Error during last BIOS action: $_" -Type Error
+					
+					$BLinfo = Get-Bitlockervolume | Where-Object { $_.MountPoint -eq $env:SystemDrive}
+					if($blinfo.ProtectionStatus -ne 'On'){
+						Write-Host "Enable Bitlocker"
+						Resume-BitLocker -MountPoint ($BLinfo.MountPoint)
+					}
+
+					if($Extract_Folder_Path){
+						Remove-Item -Path $Extract_Folder_Path -Force -Recurse -ErrorAction SilentlyContinue
+					}
+					Remove-Item -Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestLenovoBIOS.ReleaseDate).exe") -Force -ErrorAction SilentlyContinue
+
+					exit 1
+				} finally {
+					if($Extract_Folder_Path){
+						Remove-Item -Path $Extract_Folder_Path -Force -Recurse -ErrorAction SilentlyContinue
+					}
+					Remove-Item -Path ("$($env:windir)\Temp\" + "Lenovo_BIOS_Update_$($LatestLenovoBIOS.ReleaseDate).exe") -Force -ErrorAction SilentlyContinue
+				}
+			}
+			
+		} elseif ([datetime]$LatestLenovoBIOS.ReleaseDate -gt $BIOS_info.ReleaseDate -and $Remediate -eq $false) {
+			Write-Log -Component $Component -LogText "BIOS update available: $($BIOS_info.ReleaseDate) -> $($LatestLenovoBIOS.ReleaseDate)"
+			exit 1
+		} else {
+			Write-Log -Component $Component -LogText "BIOS is already up-to-date: $($BIOS_info.ReleaseDate)"
+			exit 0
+		}
+	}
+	
+} elseif ($Manufacturer -match "Dell"){
+
+    $Component = "DELL BIOS"
+
+    $CabPathIndex = "$($env:windir)\Temp\CatalogIndexPC.cab"
+    $CabPathIndexModel = "$env:temp\CatalogIndexModel.cab"
+    $DellCabExtractPath = "$($env:windir)\Temp\DellCabExtract"
+
+    if (!(Test-Path $DellCabExtractPath)){New-Item -Path $DellCabExtractPath -ItemType Directory -Force}
+    Remove-Item -Path $CabPathIndex -Force -ErrorAction SilentlyContinue
+
+    Write-Log -Component $Component -LogText "Downloading CatalogIndexPC.cab" -Type Information
+    Invoke-WebRequest -Uri "https://downloads.dell.com/catalog/CatalogIndexPC.cab" -OutFile $CabPathIndex -UseBasicParsing
+
+    if (Test-Path $CabPathIndex){
+        $Expand = expand $CabPathIndex "$DellCabExtractPath\CatalogIndexPC.xml"
+        Remove-Item -Path $CabPathIndex -Force -ErrorAction SilentlyContinue
+
+        [xml]$XMLIndex = Get-Content "$DellCabExtractPath\CatalogIndexPC.xml"
+    } else {
+        Write-Log -Component $Component -LogText "CatalogIndexPC.xml does not exist" -Type Error
+		exit 1
+    }
+
+    $SystemSKUNumber = (Get-CimInstance -ClassName Win32_ComputerSystem).SystemSKUNumber
+
+    $XMLModel = $XMLIndex.ManifestIndex.GroupManifest | Where-Object {$_.SupportedSystems.Brand.Model.systemID -match $SystemSKUNumber}
+
+    if ($XMLModel) {
+        Write-Log -Component $Component -LogText "Downloaded Dell DCU XML, now looking for Model Updates" -Type Information
+        Invoke-WebRequest -Uri "https://downloads.dell.com/$($XMLModel.ManifestInformation.path)" -OutFile $CabPathIndexModel -UseBasicParsing
+        if (Test-Path $CabPathIndexModel){
+            $Expand = expand $CabPathIndexModel "$DellCabExtractPath\CatalogIndexPCModel.xml"
+            Remove-Item -Path $CabPathIndexModel -Force -ErrorAction SilentlyContinue
+        }
+
+        if(Test-Path "$DellCabExtractPath\CatalogIndexPCModel.xml"){
+            [xml]$XMLIndexCAB = Get-Content "$DellCabExtractPath\CatalogIndexPCModel.xml"
+
+            $LatestDellBIOS = $XMLIndexCAB.Manifest.SoftwareComponent | Where-Object {$_.ComponentType.value -eq "BIOS" -and [datetime]$_.ReleaseDate -le (Get-Date).AddDays(-($LatestBIOSDays))} | Sort-Object { [Version]$_.vendorVersion } -Descending | Select-Object -First 1
+
+            if ([datetime]$LatestDellBIOS.ReleaseDate -gt (Get-Date).AddDays(-($LatestBIOSDays))) {
+		        Write-Log -Component $Component -LogText "BIOS update is newer than $($LatestBIOSDays) days. Not installing yet!"
+		        exit 0
+	        }
+	
+	        $BIOS_info = get-ciminstance win32_bios | Select-Object *
+	        $BIOSVersion = $BIOS_info.SMBIOSBIOSVersion
+
+            if([System.Version]$LatestDellBIOS.vendorVersion -gt [System.Version]$BIOSVersion -and $Remediate -eq $true) {
+                
+                Invoke-WebRequest -Uri "https://downloads.dell.com/$($LatestDellBIOS.path)" -OutFile ("$($env:windir)\Temp\" + "Dell_BIOS_Update_$($LatestDellBIOS.vendorVersion).exe") -UseBasicParsing
+
+                if(Test-Path ("$($env:windir)\Temp\" + "Dell_BIOS_Update_$($LatestDellBIOS.vendorVersion).exe")){
+
+                    try {
+                        Write-Log -Component $Component -LogText "Disable BitLocker for one reboot"
+                        #& cmd.exe /c "manage-bde -protectors -disable C:"
+                        if ((Manage-Bde -Status C:) -match "Protection On") {
+                            Suspend-BitLocker -MountPoint "$($env:SystemDrive)" -RebootCount 1
+                        }
+
+                        Write-Log -Component $Component -LogText "Tryig to install BIOS Update: Dell_BIOS_Update_$($LatestDellBIOS.vendorVersion).exe"
+                        $FlashProcess = Start-Process -FilePath ("$($env:windir)\Temp\" + "Dell_BIOS_Update_$($LatestDellBIOS.vendorVersion).exe") -ArgumentList "/s" -Wait -PassThru
+
+                        Write-Log -Component $Component -LogText "BIOS Update installed with exit code: $($FlashProcess.ExitCode)"
+
+                        try {   
+                            Show-ToastMessage
+                        }
+                        catch {
+                            Write-Log -Component $Component -LogText "Toast notification failed: $_" -Type Error
+                        }
+                    }
+                    catch {
+				        Write-Log -Component $Component -LogText "Error during last BIOS action" -Type Error
+                
+                        $BLinfo = Get-Bitlockervolume | Where-Object { $_.MountPoint -eq $env:SystemDrive}
+                        if($blinfo.ProtectionStatus -ne 'On'){
+                            Write-Host "Enable Bitlocker"
+                            Resume-BitLocker -MountPoint ($BLinfo.MountPoint)
+                        }
+
+                        Remove-Item -Path ("$($env:windir)\Temp\" + "Dell_BIOS_Update_$($LatestDellBIOS.vendorVersion).exe") -Force -ErrorAction SilentlyContinue
+
+				        exit 1
+                    } finally {
+                        Remove-Item -Path ("$($env:windir)\Temp\" + "Dell_BIOS_Update_$($LatestDellBIOS.vendorVersion).exe") -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            }  elseif ([System.Version]$LatestDellBIOS.vendorVersion -gt [System.Version]$BIOSVersion -and $Remediate -eq $false) {
+                Write-Log -Component $Component -LogText "BIOS update available: $BIOSVersion -> $LatestDellBIOS.vendorVersion"
+                exit 1
+            } else {
+                Write-Log -Component $Component -LogText "BIOS is already up-to-date: $BIOSVersion"
+                exit 0
+            }
+        } else {
+            Write-Log -Component $Component -LogText "Model specific CatalogIndexPCModel.xml does not exist" -Type Error
+            exit 1
+        }
+    } else {
+        Write-Log -Component $Component -LogText "No matching model found in Dell CatalogIndexPC.xml for SystemSKUNumber: $SystemSKUNumber" -Type Error
+        exit 1
+    }
+
 } else {
 	$Component = "Manufacturer"
     Write-Log -Component $Component -LogText "Not a HP or Lenovo device: $Manufacturer"
