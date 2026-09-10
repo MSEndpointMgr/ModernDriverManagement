@@ -2486,7 +2486,7 @@ Process {
 						# Expand compressed driver package WIM file
 						Write-CMLogEntry -Value " - Attempting to mount driver package content WIM file: $($DriverPackageCompressedFile.Name)" -Severity 1
 						Write-CMLogEntry -Value " - Mount location: $($DriverPackageMountLocation)" -Severity 1
-						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ErrorAction Stop
+						Mount-WindowsImage -ImagePath $DriverPackageCompressedFile.FullName -Path $DriverPackageMountLocation -Index 1 -ReadOnly -ErrorAction Stop
 						Write-CMLogEntry -Value " - Successfully mounted driver package content WIM file" -Severity 1
 						Write-CMLogEntry -Value " - Copying items from mount directory" -Severity 1
 						Get-ChildItem -Path $DriverPackageMountLocation | Copy-Item -destination $ContentLocation -Recurse -container
