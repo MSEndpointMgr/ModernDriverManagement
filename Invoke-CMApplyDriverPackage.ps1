@@ -404,6 +404,7 @@ Process {
 		)
 		# Determine log file location
 		$LogFilePath = Join-Path -Path $LogsDirectory -ChildPath $FileName
+		$DISMLogPath = Join-Path -Path $LogsDirectory -ChildPath "dism.log"
 		
 		# Construct time stamp for log entry
 		if (-not (Test-Path -Path 'variable:global:TimezoneBias')) {
@@ -2518,7 +2519,7 @@ Process {
 								foreach ($DriverINF in $DriverINFs) {
 									# Install specific driver
 									Write-CMLogEntry -Value " - Attempting to install driver: $($DriverINF.FullName)" -Severity 1
-									$ApplyDriverInvocation = Invoke-Executable -FilePath "dism.exe" -Arguments "/Image:$($TSEnvironment.Value('OSDTargetSystemDrive'))\ /Add-Driver /Driver:`"$($DriverINF.FullName)`""
+									$ApplyDriverInvocation = Invoke-Executable -FilePath "dism.exe" -Arguments "/Image:$($TSEnvironment.Value('OSDTargetSystemDrive'))\ /Add-Driver /Driver:`"$($DriverINF.FullName)`" /logpath:$DISMLogPath"
 									
 									# Validate driver injection
 									if ($ApplyDriverInvocation -eq 0) {
