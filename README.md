@@ -1,4 +1,11 @@
-# Modern Driver Management (maintained fork)
+# Modern Driver Management (archived compatibility source)
+
+> **Maintenance moved:** Active maintenance of
+> `Invoke-CMApplyDriverPackage.ps1` now takes place in
+> [`vartaxe/DriverAutomationTool`](https://github.com/vartaxe/DriverAutomationTool/tree/main/Driver%20Automation%20Tool/Scripts).
+> This repository is retained read-only for historical references, commit
+> provenance, and users who need the former standalone layout. Do not open new
+> maintenance work here.
 
 This repository is a maintained fork of
 [MSEndpointMgr/ModernDriverManagement](https://github.com/MSEndpointMgr/ModernDriverManagement),
