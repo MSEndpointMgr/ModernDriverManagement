@@ -1,3 +1,6 @@
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSAvoidUsingConvertToSecureStringWithPlainText", "", Justification = "This standalone regression harness uses a fixed synthetic test password only to construct an in-memory PSCredential.")]
+param ()
+
 $ErrorActionPreference = "Stop"
 $ScriptPath = Join-Path (Split-Path $PSScriptRoot -Parent) "Invoke-CMApplyDriverPackage.ps1"
 $ParseErrors = $null
