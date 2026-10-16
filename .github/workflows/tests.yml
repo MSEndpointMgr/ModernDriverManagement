@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Regression suite (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run regression checks
+        shell: cmd
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Invoke-CMApplyDriverPackage.Tests.ps1
+
+      - name: Run PSScriptAnalyzer (errors fail the build)
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -Repository PSGallery
+          $results = Invoke-ScriptAnalyzer -Path .\Invoke-CMApplyDriverPackage.ps1 -Severity Error
+          if ($results) {
+            $results | Format-Table -AutoSize | Out-String | Write-Host
+            throw "PSScriptAnalyzer reported $($results.Count) error(s)."
+          }
+          Write-Host 'PSScriptAnalyzer reported no errors.'
